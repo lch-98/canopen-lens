@@ -257,10 +257,11 @@ def test_sample_log_findings():
     assert (IssueType.BUS_ERROR_FRAME, 0) in found
     # healthy things must stay quiet
     assert not any(i.node == 1 and i.severity != Severity.INFO for i in log.issues)
-    fault = next(i for i in log.issues if i.type == IssueType.AXIS_FAULT)
+    fault = next(i for i in log.issues if i.type == IssueType.AXIS_FAULT and i.node == 2)
     assert fault.related_row is not None and log.trace.record(fault.related_row).emcy_code == 0x2310
     nodes = {n.node: n for n in log.nodes}
     assert nodes[1].is_drive and nodes[2].is_drive and not nodes[3].is_drive
+    assert nodes[1].axis_count == 1 and nodes[5].axis_count == 2
     assert abs(nodes[3].hb_period - 0.1) < 1e-3
 
 
@@ -280,13 +281,15 @@ def test_filter():
     log = open_log(SAMPLE)
     tr = log.trace
     emcy = tr.filter(kinds=[Kind.EMCY])
-    assert len(emcy) == 2 and all(tr.record(r).kind == Kind.EMCY for r in emcy)
+    assert len(emcy) == 4 and all(tr.record(r).kind == Kind.EMCY for r in emcy)
     node3 = tr.filter(node=3)
     assert all(tr.record(r).node == 3 for r in node3)
     problems = tr.filter(issues_only=True)
     assert all(tr.record(r).has_issue for r in problems)
-    sw = tr.filter(index=0x606C)
-    assert len(sw) > 0 and all(tr.record(r).node == 1 for r in sw)
+    vel = tr.filter(index=0x606C)
+    assert len(vel) > 0 and {tr.record(r).node for r in vel} == {1, 5}
+    vel2 = tr.filter(index=0x686C)
+    assert len(vel2) > 0 and {tr.record(r).node for r in vel2} == {5}
     assert memoryview(tr.filter(node=3)).format in ("I", "L", "=I", "<I")
 
 
@@ -314,3 +317,101 @@ def test_eds_drives_mapping_and_names():
     assert "실제 속도=1000" in log.summary(0, "ko")
     log.detach_eds(5)
     assert log.trace.record(0).map_ref is None
+
+
+# --------------------------------------------------------------------------- multi-axis (CiA 402-2)
+
+def test_sample_two_axis_node():
+    log = open_log(SAMPLE)
+    tr = log.trace
+    fault = next(i for i in log.issues if i.type == IssueType.AXIS_FAULT and i.node == 5)
+    assert fault.axis == 1
+    assert tr.record(fault.related_row).emcy_code == 0x7121
+    assert "축 2" in log.issue_text(fault, "ko")[0]
+    assert "0x6840" in log.issue_text(fault, "ko")[1]
+    axis1 = [p.state for p in tr.axis_timeline(5, 0)]
+    axis2 = [p.state for p in tr.axis_timeline(5, 1)]
+    assert AxisState.FAULT not in axis1          # axis 1 kept running
+    assert AxisState.FAULT in axis2
+    assert axis2[-1] == AxisState.OPERATION_ENABLED
+    # no false alarms for node 5 besides the axis 2 fault and its EMCY
+    assert {i.type for i in log.issues if i.node == 5 and i.severity != Severity.INFO} == {
+        IssueType.AXIS_FAULT, IssueType.EMCY}
+
+
+def _two_axis(lines):
+    head = [
+        "(0.000) can0 601#2F001A0000000000", "(0.001) can0 581#60001A0000000000",
+        "(0.002) can0 601#23001A0110004160", "(0.003) can0 581#60001A0100000000",   # 0x60410010
+        "(0.004) can0 601#23001A0210004168", "(0.005) can0 581#60001A0200000000",   # 0x68410010
+        "(0.006) can0 601#2F001A0002000000", "(0.007) can0 581#60001A0000000000",
+        "(0.008) can0 601#2F00160000000000", "(0.009) can0 581#6000160000000000",
+        "(0.010) can0 601#2300160110004060", "(0.011) can0 581#6000160100000000",   # 0x60400010
+        "(0.012) can0 601#2300160210004068", "(0.013) can0 581#6000160200000000",   # 0x68400010
+        "(0.014) can0 601#2F00160002000000", "(0.015) can0 581#6000160000000000",
+    ]
+    return CanopenLog.from_text("\n".join(head + lines))
+
+
+def _w(v):
+    return f"{v & 0xFF:02X}{v >> 8:02X}"
+
+
+def test_two_axis_pdo_decoding():
+    log = _two_axis([f"(0.100) can0 181#{_w(0x0237)}{_w(0x0218)}"])
+    tr = log.trace
+    assert tr.nodes[0].is_drive and tr.axis_count(1) == 2
+    words = tr.axis_words(16)
+    assert [(w.axis, w.state) for w in words] == [(0, AxisState.OPERATION_ENABLED), (1, AxisState.FAULT)]
+    assert tr.nodes[0].axis_states == [AxisState.OPERATION_ENABLED, AxisState.FAULT]
+    fault = next(i for i in log.issues if i.type == IssueType.AXIS_FAULT)
+    assert fault.axis == 1
+
+
+def test_enable_failure_on_axis_two_only():
+    lines = []
+    t = 0.1
+    for k in range(150):
+        cw = 0x0F if k > 5 else 0x06
+        lines.append(f"({t:.3f}) can0 201#{_w(cw)}{_w(cw)}")
+        sw2 = 0x0231  # axis 2 never leaves "ready to switch on"
+        sw1 = 0x0237 if k > 5 else 0x0231
+        lines.append(f"({t + 0.0005:.4f}) can0 181#{_w(sw1)}{_w(sw2)}")
+        t += 0.01
+    log = _two_axis(lines)
+    failed = [i for i in log.issues if i.type == IssueType.AXIS_ENABLE_FAILED]
+    assert len(failed) == 1 and failed[0].axis == 1
+    title, text = log.issue_text(failed[0], "en")
+    assert "axis 2" in title and "0x6840" in text
+
+
+def test_axis_two_statusword_over_sdo():
+    log = CanopenLog.from_text(
+        "(0.0) can0 601#4041680000000000\n"      # read 0x6841
+        "(0.001) can0 581#4B41680018020000\n"    # = 0x0218 (fault)
+    )
+    tr = log.trace
+    assert tr.nodes[0].is_drive and tr.axis_count(1) == 2
+    assert tr.record(1).has_statusword and tr.record(1).sw_axis == 1
+    assert "축 2 스테이터스워드" in log.summary(1, "ko")
+
+
+def test_cia401_io_module_is_not_a_drive():
+    log = CanopenLog.from_text(
+        "(0.0) can0 603#4000600100000000\n"      # read 0x6000:01 (CiA 401 digital inputs)
+        "(0.001) can0 583#4F00600105000000\n"
+        "(0.002) can0 603#4000100000000000\n"
+        "(0.003) can0 583#4300100091010F00\n"    # device type 401
+        "(0.010) can0 183#0500\n"
+    )
+    assert not log.trace.nodes[0].is_drive
+    assert not log.trace.record(4).has_statusword
+
+
+def test_axis_object_names():
+    from canopen_lens.objects import axis_base, axis_of, builtin_object
+
+    assert axis_of(0x6041) == 0 and axis_of(0x6841) == 1 and axis_of(0x9841) == 7 and axis_of(0x1000) == -1
+    assert axis_base(0x6841) == 0x6041
+    info = builtin_object(0x686C, 0)
+    assert info.name("ko") == "축 2 실제 속도" and info.name("en") == "Axis 2 Velocity actual value"

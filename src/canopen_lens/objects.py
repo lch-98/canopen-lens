@@ -122,8 +122,30 @@ MODES_OF_OPERATION = {
 }
 
 
+AXIS_OFFSET = 0x800
+
+
+def axis_of(index: int) -> int:
+    """0-based CiA 402 axis of a profile object (0x6841 -> 1), -1 outside 0x6000-0x9FFF."""
+    if 0x6000 <= index <= 0x9FFF:
+        return (index - 0x6000) // AXIS_OFFSET
+    return -1
+
+
+def axis_base(index: int) -> int:
+    """The axis-1 equivalent of a profile object (0x6841 -> 0x6041)."""
+    a = axis_of(index)
+    return index - a * AXIS_OFFSET if a > 0 else index
+
+
 def builtin_object(index: int, sub: int) -> Optional[ObjectInfo]:
     """Look up a well-known object, including the PDO parameter ranges."""
+    a = axis_of(index)
+    if a > 0:
+        base = builtin_object(axis_base(index), sub)
+        if base is None:
+            return None
+        return ObjectInfo(f"Axis {a + 1} {base.name_en}", f"축 {a + 1} {base.name_ko}", base.dtype, base.unit)
     info = _FIXED.get((index, sub)) or _FIXED.get((index, None))
     if info:
         return info

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from ._core import AxisState, CwCommand, IssueType, Kind, SdoType, Severity, decode_controlword, decode_statusword
-from .objects import MODES_OF_OPERATION, format_value, mapping_entry_text, to_signed
+from .objects import MODES_OF_OPERATION, axis_base, axis_of, format_value, mapping_entry_text, to_signed
 
 if TYPE_CHECKING:  # pragma: no cover
     from .log import CanopenLog
@@ -342,6 +342,19 @@ def statusword_bits(sw: int, lang: str) -> list[str]:
 # Frame summaries
 # --------------------------------------------------------------------------
 
+def who(log: "CanopenLog", node: int, axis: int, lang: str) -> str:
+    """'노드 3' or, for multi-axis drives, '노드 3 · 축 2'."""
+    if log.trace.axis_count(node) > 1:
+        return _p(lang, f"노드 {node} · 축 {axis + 1}", f"Node {node} axis {axis + 1}")
+    return _p(lang, f"노드 {node}", f"Node {node}")
+
+
+def _axis_prefix(log: "CanopenLog", node: int, axis: int, lang: str) -> str:
+    if log.trace.axis_count(node) > 1:
+        return _p(lang, f"축{axis + 1} ", f"axis{axis + 1} ")
+    return ""
+
+
 def _obj(log: "CanopenLog", node: int, index: int, sub: int, lang: str) -> str:
     info = log.object_info(node, index, sub)
     name = f" {info.name(lang)}" if info else ""
@@ -354,11 +367,12 @@ def _value_text(log: "CanopenLog", node: int, index: int, sub: int, raw: int, nb
     if 0x1600 <= index <= 0x17FF or 0x1A00 <= index <= 0x1BFF:
         if sub > 0 and nbytes == 4:
             return mapping_entry_text(raw)
-    if index == 0x6040 and nbytes == 2:
+    base = axis_base(index)
+    if base == 0x6040 and nbytes == 2:
         return f"0x{raw:04X} → {cw_command_text(decode_controlword(raw), lang)}"
-    if index == 0x6041 and nbytes == 2:
+    if base == 0x6041 and nbytes == 2:
         return f"0x{raw:04X} → {axis_state_text(decode_statusword(raw), lang)}"
-    if index in (0x6060, 0x6061) and nbytes >= 1:
+    if base in (0x6060, 0x6061) and nbytes >= 1:
         mode = to_signed(raw, 8)
         if mode in MODES_OF_OPERATION:
             ko, en = MODES_OF_OPERATION[mode]
@@ -389,19 +403,23 @@ def frame_summary(log: "CanopenLog", row: int, lang: str = "ko") -> str:
     if k in (Kind.TPDO, Kind.RPDO):
         name = f"{'TPDO' if k == Kind.TPDO else 'RPDO'}{r.pdo_num}"
         parts = []
-        if r.has_statusword:
-            parts.append(f"{_p(lang, '상태', 'state')}: {axis_state_text(r.axis_state, lang, short=True)} (SW 0x{r.statusword:04X})")
-        if r.has_controlword and r.cw_command != CwCommand.NONE:
-            parts.append(f"{_p(lang, '명령', 'cmd')}: {cw_command_text(r.cw_command, lang)} (CW 0x{r.controlword:04X})")
-        elif r.has_controlword:
-            parts.append(f"CW 0x{r.controlword:04X}")
+        for w in (log.trace.axis_words(row) if r.words_count else []):
+            pre = _axis_prefix(log, r.node, w.axis, lang)
+            if w.is_statusword:
+                parts.append(f"{pre}{_p(lang, '상태', 'state')}: {axis_state_text(w.state, lang, short=True)} (SW 0x{w.word:04X})")
+            elif w.command != CwCommand.NONE:
+                parts.append(f"{pre}{_p(lang, '명령', 'cmd')}: {cw_command_text(w.command, lang)} (CW 0x{w.word:04X})")
+            else:
+                parts.append(f"{pre}CW 0x{w.word:04X}")
         for fld in log.trace.pdo_fields(row):
-            if fld.index in (0x6040, 0x6041):
+            if r.words_count and axis_base(fld.index) in (0x6040, 0x6041):
                 continue
             info = log.object_info(r.node, fld.index, fld.sub)
             label = info.name(lang) if info else f"0x{fld.index:04X}:{fld.sub:02X}"
+            if axis_of(fld.index) == 0 and log.trace.axis_count(r.node) > 1:
+                label = _p(lang, "축 1 ", "Axis 1 ") + label
             value = format_value(fld.raw, fld.bits, info.dtype if info else None, bits=True)
-            if fld.index in (0x6060, 0x6061):
+            if axis_base(fld.index) in (0x6060, 0x6061):
                 mode = to_signed(fld.raw, 8)
                 if mode in MODES_OF_OPERATION:
                     value = _p(lang, *MODES_OF_OPERATION[mode])
@@ -495,12 +513,16 @@ def frame_details(log: "CanopenLog", row: int, lang: str = "ko") -> list[tuple[s
             if not fld.complete:
                 val += _p(lang, " (프레임이 짧아 값이 잘림)", " (frame too short)")
             rows.append((label.strip(), val))
-    if r.has_statusword:
-        bits = ", ".join(statusword_bits(r.statusword, lang)) or "-"
-        rows.append((_p(lang, "축 상태", "Axis state"), axis_state_text(r.axis_state, lang)))
-        rows.append((_p(lang, "스테이터스워드 비트", "Statusword bits"), bits))
-    if r.has_controlword:
-        rows.append((_p(lang, "컨트롤워드 명령", "Controlword command"), cw_command_text(r.cw_command, lang)))
+    multi = log.trace.axis_count(r.node) > 1
+    for w in (log.trace.axis_words(row) if r.words_count else []):
+        ax = _p(lang, f"축 {w.axis + 1} ", f"Axis {w.axis + 1} ") if multi else ""
+        if w.is_statusword:
+            bits = ", ".join(statusword_bits(w.word, lang)) or "-"
+            rows.append((ax + _p(lang, "상태", "state") if multi else _p(lang, "축 상태", "Axis state"),
+                         axis_state_text(w.state, lang)))
+            rows.append((ax + _p(lang, "스테이터스워드 비트", "statusword bits"), bits))
+        else:
+            rows.append((ax + _p(lang, "컨트롤워드 명령", "controlword command"), cw_command_text(w.command, lang)))
     if r.kind == Kind.EMCY and r.emcy_code:
         rows.append((_p(lang, "에러 코드", "Error code"), f"0x{r.emcy_code:04X} {emcy_text(r.emcy_code, lang)}"))
         rows.append((_p(lang, "에러 레지스터", "Error register"), f"0x{r.error_register:02X} ({error_register_text(r.error_register, lang)})"))
@@ -569,29 +591,31 @@ def issue_text(log: "CanopenLog", issue, lang: str = "ko") -> tuple[str, str]:
         return (_p(lang, f"노드 {n}: 예상치 못한 재부팅", f"Node {n}: unexpected reboot"),
                 _p(lang, "리셋 명령이 없었는데 노드가 Boot-up 메시지를 다시 보냈습니다. 전원 순간 저하(브라운아웃), 워치독 리셋, 펌웨어 크래시를 의심하세요.",
                    "The node sent boot-up again without a reset command. Suspect a brown-out, watchdog reset or firmware crash."))
+    off = 0x800 * issue.axis
+    cw_idx, err_idx = 0x6040 + off, 0x603F + off
     if T == IssueType.AXIS_FAULT:
         extra = ""
         if issue.related_row is not None:
             r = log.trace.record(issue.related_row)
             extra = _p(lang, f" 같은 시점에 보고된 EMCY 0x{r.emcy_code:04X}({emcy_text(r.emcy_code, lang)})가 원인일 가능성이 큽니다.",
                        f" The EMCY 0x{r.emcy_code:04X} ({emcy_text(r.emcy_code, lang)}) reported at the same time is the likely cause.")
-        return (_p(lang, f"노드 {n}: 드라이브 폴트 발생", f"Node {n}: drive entered Fault"),
-                _p(lang, f"스테이터스워드 0x{issue.code:04X}에서 Fault 비트가 켜졌습니다.{extra} 원인을 해결한 뒤 컨트롤워드 bit 7(Fault reset)을 0→1로 올려야 해제됩니다.",
-                   f"Statusword 0x{issue.code:04X} shows Fault.{extra} Fix the cause, then raise controlword bit 7 (fault reset) from 0 to 1."))
+        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 드라이브 폴트 발생", f"{who(log, n, issue.axis, lang)}: drive entered Fault"),
+                _p(lang, f"스테이터스워드 0x{issue.code:04X}에서 Fault 비트가 켜졌습니다.{extra} 원인을 해결한 뒤 컨트롤워드(0x{cw_idx:04X}) bit 7(Fault reset)을 0→1로 올려야 해제됩니다. 드라이브 에러 코드는 0x{err_idx:04X}에서 읽을 수 있습니다.",
+                   f"Statusword 0x{issue.code:04X} shows Fault.{extra} Fix the cause, then raise bit 7 (fault reset) of the controlword (0x{cw_idx:04X}) from 0 to 1. The drive error code is in 0x{err_idx:04X}."))
     if T == IssueType.AXIS_QUICK_STOP:
-        return (_p(lang, f"노드 {n}: 급정지 동작", f"Node {n}: quick stop active"),
+        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 급정지 동작", f"{who(log, n, issue.axis, lang)}: quick stop active"),
                 _p(lang, "드라이브가 Quick stop 상태로 들어갔습니다. 마스터가 Quick stop 명령(컨트롤워드 bit 2 = 0)을 보냈는지 확인하세요.",
                    "The drive is in quick stop. Check whether the master sent quick stop (controlword bit 2 = 0)."))
     if T == IssueType.AXIS_ENABLE_FAILED:
         code = issue.code if issue.code < 0x80 else -1
         state = axis_state_text(AxisState(code), lang)
-        return (_p(lang, f"노드 {n}: 운전 허가(Enable)가 적용되지 않음", f"Node {n}: enable operation did not take effect"),
-                _p(lang, f"Enable operation 명령 후 {issue.value:g}초가 지나도 Operation enabled가 되지 않았습니다 (현재: {state}). CiA 402는 Shutdown(0x06) → Switch on(0x07) → Enable operation(0x0F) 순서를 지켜야 하며, 드라이브가 Fault 상태면 먼저 Fault reset이 필요합니다. 주전원(모터 전원) 인가 여부도 확인하세요.",
-                   f"Operation enabled was not reached {issue.value:g} s after the command (now: {state}). CiA 402 needs Shutdown (0x06) → Switch on (0x07) → Enable operation (0x0F); a faulted drive needs a fault reset first. Also check motor power."))
+        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 운전 허가(Enable)가 적용되지 않음", f"{who(log, n, issue.axis, lang)}: enable operation did not take effect"),
+                _p(lang, f"Enable operation 명령 후 {issue.value:g}초가 지나도 Operation enabled가 되지 않았습니다 (현재: {state}). CiA 402는 컨트롤워드(0x{cw_idx:04X})에 Shutdown(0x06) → Switch on(0x07) → Enable operation(0x0F) 순서로 보내야 하며, 드라이브가 Fault 상태면 먼저 Fault reset이 필요합니다. 주전원(모터 전원) 인가 여부도 확인하세요.",
+                   f"Operation enabled was not reached {issue.value:g} s after the command (now: {state}). CiA 402 needs Shutdown (0x06) → Switch on (0x07) → Enable operation (0x0F) on the controlword (0x{cw_idx:04X}); a faulted drive needs a fault reset first. Also check motor power."))
     if T == IssueType.AXIS_FAULT_RESET_FAILED:
-        return (_p(lang, f"노드 {n}: 폴트 리셋 실패", f"Node {n}: fault reset failed"),
-                _p(lang, f"Fault reset 후 {issue.value:g}초가 지나도 폴트가 풀리지 않았습니다. 오류 원인이 아직 남아 있습니다 (예: 과전류, 엔코더 오류, 비상정지 입력). EMCY와 0x603F 값을 확인하세요.",
-                   f"The fault is still present {issue.value:g} s after the reset. The cause is still active (e.g. over current, encoder fault, e-stop input). Check EMCY and 0x603F."))
+        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 폴트 리셋 실패", f"{who(log, n, issue.axis, lang)}: fault reset failed"),
+                _p(lang, f"Fault reset 후 {issue.value:g}초가 지나도 폴트가 풀리지 않았습니다. 오류 원인이 아직 남아 있습니다 (예: 과전류, 엔코더 오류, 비상정지 입력). EMCY와 0x{err_idx:04X} 값을 확인하세요.",
+                   f"The fault is still present {issue.value:g} s after the reset. The cause is still active (e.g. over current, encoder fault, e-stop input). Check EMCY and 0x{err_idx:04X}."))
     if T == IssueType.BUS_ERROR_FRAME:
         return (_p(lang, "CAN 버스 에러 프레임", "CAN bus error frames"),
                 _p(lang, "CAN 드라이버가 버스 오류를 보고했습니다. 종단저항(양 끝 120Ω), 통신 속도 일치, 배선 길이, GND 연결을 확인하세요.",

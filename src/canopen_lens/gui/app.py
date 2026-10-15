@@ -157,7 +157,13 @@ class NodeCard(QFrame):
         if ni.hb_period:
             lines.append((tr("node_hb"), f"{ni.hb_period * 1000:.0f} ms"))
         if ni.is_drive:
-            lines.append((tr("node_axis"), describe.axis_state_text(ni.axis_state, lang)))
+            states = list(ni.axis_states) or [ni.axis_state]
+            if len(states) > 1:
+                lines.append((tr("node_axes"), str(len(states))))
+                for k, state in enumerate(states):
+                    lines.append((tr("node_axis_n").format(k + 1), describe.axis_state_text(state, lang)))
+            else:
+                lines.append((tr("node_axis"), describe.axis_state_text(states[0], lang)))
         if ni.device_type_known:
             profile = ni.device_type & 0xFFFF
             lines.append((tr("node_device_type"), f"0x{ni.device_type:08X} (CiA {profile})"))
@@ -405,6 +411,8 @@ class MainWindow(QMainWindow):
         f.setBold(True)
         f.setPointSizeF(f.pointSizeF() * 1.15)
         self.detail_title.setFont(f)
+        self.detail_title.setWordWrap(True)
+        self.detail_title.setMinimumWidth(1)
         rl.addWidget(self.detail_title)
         self.detail = QTextBrowser()
         self.detail.setOpenLinks(False)

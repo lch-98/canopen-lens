@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "canopen-lens"
-version = "0.1.0"
+version = "0.2.0"
 description = "Beginner-friendly CANopen log viewer: open a candump log and see what every frame means"
 readme = "README.md"
 license = "MIT"

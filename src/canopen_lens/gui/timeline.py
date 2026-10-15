@@ -10,7 +10,7 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from .. import describe
-from .._core import AxisState, Kind, Severity
+from .._core import AxisState, IssueType, Kind, Severity
 from ..log import CanopenLog
 from .i18n import Tr
 
@@ -86,18 +86,31 @@ class TimelineWidget(QWidget):
             if i.node and i.severity != Severity.INFO:
                 issues_by_node.setdefault(i.node, []).append(i)
 
+        axis_types = {IssueType.AXIS_FAULT, IssueType.AXIS_QUICK_STOP, IssueType.AXIS_ENABLE_FAILED,
+                      IssueType.AXIS_FAULT_RESET_FAILED}
         for ni in trace.nodes:
             n = ni.node
-            markers = [(i.t, i.row, log.issue_text(i, lang)[0]) for i in issues_by_node.get(n, [])]
+            node_issues = issues_by_node.get(n, [])
+
+            def marks(sel):
+                return [(i.t, i.row, log.issue_text(i, lang)[0]) for i in node_issues if sel(i)]
+
+            # node-level findings go on the node's first lane
+            markers = marks(lambda i: i.type not in axis_types)
             if ni.is_drive:
-                pts = trace.axis_timeline(n)
-                segs = []
-                for k, p in enumerate(pts):
-                    t1 = pts[k + 1].t if k + 1 < len(pts) else self.duration
-                    segs.append(Segment(p.t, t1, AXIS_COLORS[p.state],
-                                        describe.axis_state_text(p.state, lang), int(p.row)))
-                if segs:
-                    self.lanes.append(Lane(f"{self.tr_('col_node')} {n} · {self.tr_('timeline_axis')}", segs, markers))
+                multi = ni.axis_count > 1
+                for axis in range(max(ni.axis_count, 1)):
+                    pts = trace.axis_timeline(n, axis)
+                    segs = []
+                    for k, p in enumerate(pts):
+                        t1 = pts[k + 1].t if k + 1 < len(pts) else self.duration
+                        segs.append(Segment(p.t, t1, AXIS_COLORS[p.state],
+                                            describe.axis_state_text(p.state, lang), int(p.row)))
+                    axis_marks = marks(lambda i, a=axis: i.type in axis_types and i.axis == a)
+                    if not segs and not axis_marks:
+                        continue
+                    label = self.tr_("timeline_axis_n").format(axis + 1) if multi else self.tr_("timeline_axis")
+                    self.lanes.append(Lane(f"{self.tr_('col_node')} {n} · {label}", segs, markers + axis_marks))
                     markers = []
             if ni.hb_count:
                 rows = trace.filter(kinds=[Kind.HEARTBEAT], node=n)

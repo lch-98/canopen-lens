@@ -121,6 +121,9 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("emcy_code", &Record::emcy_code)
         .def_readonly("error_register", &Record::error_register)
         .def_readonly("has_statusword", &Record::has_statusword)
+        .def_readonly("sw_axis", &Record::sw_axis)
+        .def_readonly("cw_axis", &Record::cw_axis)
+        .def_readonly("words_count", &Record::words_count)
         .def_readonly("statusword", &Record::statusword)
         .def_readonly("axis_state", &Record::axis_state)
         .def_readonly("has_controlword", &Record::has_controlword)
@@ -138,6 +141,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("t", &Issue::t)
         .def_readonly("row", &Issue::row)
         .def_readonly("node", &Issue::node)
+        .def_readonly("axis", &Issue::axis)
         .def_readonly("code", &Issue::code)
         .def_readonly("index", &Issue::index)
         .def_readonly("sub", &Issue::sub)
@@ -147,6 +151,13 @@ PYBIND11_MODULE(_core, m) {
             if (i.related_row < 0) return py::none();
             return py::int_(i.related_row);
         });
+
+    py::class_<AxisWord>(m, "AxisWord")
+        .def_readonly("axis", &AxisWord::axis)
+        .def_readonly("is_statusword", &AxisWord::is_statusword)
+        .def_readonly("word", &AxisWord::word)
+        .def_readonly("state", &AxisWord::state)
+        .def_readonly("command", &AxisWord::command);
 
     py::class_<PdoMapEntry>(m, "PdoMapEntry")
         .def(py::init([](uint16_t index, uint8_t sub, uint8_t bits) { return PdoMapEntry{index, sub, bits}; }),
@@ -200,6 +211,10 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("device_type", &NodeInfo::device_type)
         .def_readonly("device_type_known", &NodeInfo::device_type_known)
         .def_readonly("axis_state", &NodeInfo::axis_state)
+        .def_readonly("axis_count", &NodeInfo::axis_count)
+        .def_property_readonly("axis_states", [](const NodeInfo& n) {
+            return std::vector<AxisState>(n.axis_states.begin(), n.axis_states.begin() + n.axis_count);
+        })
         .def_readonly("emcy_count", &NodeInfo::emcy_count)
         .def_readonly("sdo_abort_count", &NodeInfo::sdo_abort_count)
         .def_readonly("reboot_count", &NodeInfo::reboot_count);
@@ -240,7 +255,9 @@ PYBIND11_MODULE(_core, m) {
         .def("record", &Trace::record, py::arg("row"), py::return_value_policy::copy)
         .def_property_readonly("issues", &Trace::issues)
         .def_property_readonly("nodes", &Trace::nodes)
-        .def("axis_timeline", &Trace::axis_timeline, py::arg("node"))
+        .def("axis_timeline", &Trace::axis_timeline, py::arg("node"), py::arg("axis") = 0)
+        .def("axis_words", &Trace::axis_words, py::arg("row"))
+        .def("axis_count", &Trace::axis_count, py::arg("node"))
         .def("mapping", &Trace::mapping, py::arg("ref"), py::return_value_policy::copy)
         .def_property_readonly("mapping_count", &Trace::mapping_count)
         .def("pdo_fields", &Trace::pdo_fields, py::arg("row"))

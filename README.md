@@ -6,7 +6,7 @@ CANopen Lens is a desktop viewer for people who are new to CANopen (and a fast t
 Drop in a log recorded with `candump` and it will:
 
 - **Decode every frame** — NMT, SYNC, EMCY, PDO, SDO (expedited, segmented, abort), heartbeat — into a one-line explanation.
-- **Track CiA 402 drives** — decode controlword commands and statusword states and draw each axis' state machine on a timeline.
+- **Track CiA 402 drives, including multi-axis devices** — decode controlword commands and statusword states per axis (CiA 402-2, axis objects every `0x800`: `0x6041`, `0x6841`, …) and draw each axis' state machine on a timeline.
 - **Use your EDS files** — object names, data types and the PDO mapping come from the EDS; PDO remapping done over SDO inside the log is followed automatically.
 - **Diagnose problems** — SDO aborts (with the reason and what to check), SDO requests without an answer, EMCY codes, heartbeat gaps and lost nodes, unexpected reboots, drive faults and failed enable / fault-reset sequences, bus error frames.
 
@@ -34,7 +34,8 @@ canopen-lens --en robot.log  # start in English
 ```
 
 No log at hand? Click **Try the sample log**: it contains two CiA 402 drives and an I/O module with an SDO abort,
-an over-current fault, a failed fault reset, a heartbeat gap and a node that disappears.
+an over-current fault, a failed fault reset, a heartbeat gap and a node that disappears, plus a two-axis drive whose
+second axis faults while the first keeps running.
 
 ### Recording a log
 
@@ -77,14 +78,14 @@ for p in log.trace.axis_timeline(1):      # CiA 402 state changes of node 1
 | Classify by COB-ID | C++ | CiA 301 predefined connection set |
 | Follow SDO transfers | C++ | Values, segmented transfers, abort codes, missing answers |
 | Track PDO mapping | C++ | EDS → mapping written over SDO in the log → CiA 402 default mapping |
-| CiA 402 state machine | C++ | Nodes count as drives when the log or EDS shows it (device type 402, access to `0x6000–0x67FF`, statusword/controlword in a PDO); this can be overridden per node |
+| CiA 402 state machine | C++ | One state machine per axis (up to 8, objects offset by `0x800`). Nodes count as drives when the log or EDS shows it (device type 402, access to typical CiA 402 objects such as `0x6040/0x6041/0x6060` on any axis, statusword/controlword in a PDO); a device type other than 402 rules it out. This can be overridden per node |
 | Explanations | Python | All wording lives in `describe.py` (Korean/English) |
 
 ## Limitations (v0.1)
 
 - Only `candump` input. PCAN `.trc` is planned next.
 - PDOs are assumed to use the default COB-IDs (`0x180 + node`, …); custom COB-IDs set through `0x1400/0x1800` are not followed yet.
-- Multi-axis devices (CiA 402-2, axis offset `0x800`) are decoded as a single axis.
+- The CiA 402 default PDO mapping is only assumed for axis 1. Axes 2–8 are decoded when the EDS or the log itself provides their mapping.
 - Diagnosis is heuristic. It tells you where to look; the device manual has the final word.
 
 ## Development
@@ -108,7 +109,7 @@ MIT
 `candump` 로그 파일을 끌어다 놓으면 CANopen 프레임 하나하나가 **무슨 뜻인지**, **어디서 문제가 생겼는지**를 쉬운 말로 보여주는 데스크톱 프로그램입니다.
 
 - 모든 프레임(NMT, SYNC, EMCY, PDO, SDO, 하트비트)을 한 줄 설명으로 해석합니다.
-- CiA 402 드라이브의 컨트롤워드 명령과 스테이터스워드 상태를 해석하고, 축 상태 변화를 타임라인으로 보여줍니다.
+- CiA 402 드라이브의 컨트롤워드 명령과 스테이터스워드 상태를 축별로 해석하고(다축 장치의 `0x6841`, `0x6840` 등 포함), 축 상태 변화를 타임라인으로 보여줍니다.
 - EDS 파일을 지정하면 오브젝트 이름·데이터 타입·PDO 매핑을 그대로 사용하고, 로그 안에서 SDO로 바꾼 매핑도 자동으로 따라갑니다.
 - SDO 실패 원인과 확인할 것, 응답 없는 SDO, EMCY 코드, 하트비트 끊김, 예상치 못한 재부팅, 드라이브 폴트, Enable·폴트 리셋 실패, 버스 에러 프레임을 자동으로 찾아 줍니다.
 

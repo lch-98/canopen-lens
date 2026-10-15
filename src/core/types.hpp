@@ -9,6 +9,23 @@
 
 namespace col {
 
+// CiA 402 multi-axis devices repeat the profile objects every 0x800 indices:
+// axis 1 uses 0x6000-0x67FF, axis 2 0x6800-0x6FFF, ... axis 8 0x9800-0x9FFF.
+constexpr int kMaxAxes = 8;
+constexpr uint16_t kAxisOffset = 0x800;
+
+// Axis number (0-based) of a profile object, or -1 outside 0x6000-0x9FFF.
+inline int axis_of(uint16_t index) {
+    if (index < 0x6000 || index > 0x9FFF) return -1;
+    return (index - 0x6000) / kAxisOffset;
+}
+
+// The axis 1 equivalent of a profile object (0x6841 -> 0x6041).
+inline uint16_t axis_base(uint16_t index) {
+    int a = axis_of(index);
+    return a < 0 ? index : static_cast<uint16_t>(index - a * kAxisOffset);
+}
+
 // One raw CAN frame as read from a log file.
 struct Frame {
     double t = 0.0;          // seconds, relative to the first frame
@@ -104,16 +121,31 @@ struct Record {
     uint16_t emcy_code = 0;
     uint8_t error_register = 0;
 
-    // CiA 402 (set when this frame carries a statusword / controlword)
+    // CiA 402: the first statusword / controlword in this frame. A frame of a
+    // multi-axis device can carry one per axis; all of them are listed in
+    // Trace::axis_words(row).
     bool has_statusword = false;
+    uint8_t sw_axis = 0;       // 0-based axis of `statusword`
     uint16_t statusword = 0;
     AxisState axis_state = AxisState::UNKNOWN;
     bool has_controlword = false;
+    uint8_t cw_axis = 0;
     uint16_t controlword = 0;
     CwCommand cw_command = CwCommand::NONE;
+    uint8_t words_count = 0;   // number of AxisWord entries for this frame
+    uint32_t words_off = 0;    // first entry in the trace's AxisWord table
 
     bool has_issue = false;
     uint32_t map_ref = UINT32_MAX;  // PDO mapping version used to decode this frame
+};
+
+// One statusword or controlword found in a frame.
+struct AxisWord {
+    uint8_t axis = 0;          // 0-based
+    bool is_statusword = true;
+    uint16_t word = 0;
+    AxisState state = AxisState::UNKNOWN;   // for statuswords
+    CwCommand command = CwCommand::NONE;    // for controlwords
 };
 
 enum class Severity : uint8_t { INFO = 0, WARNING, ERROR };
@@ -140,6 +172,7 @@ struct Issue {
     double t = 0.0;
     uint32_t row = 0;          // frame index the issue points at
     uint8_t node = 0;
+    uint8_t axis = 0;          // 0-based axis for CiA 402 findings
     uint32_t code = 0;         // abort code, EMCY code, state, ...
     uint16_t index = 0;        // object index when relevant
     uint8_t sub = 0;
@@ -193,7 +226,9 @@ struct NodeInfo {
     bool drive_forced = false; // set by the user rather than detected
     uint32_t device_type = 0;  // object 0x1000 if it was read
     bool device_type_known = false;
-    AxisState axis_state = AxisState::UNKNOWN;
+    AxisState axis_state = AxisState::UNKNOWN;   // axis 1
+    uint8_t axis_count = 0;    // axes seen in the log (0 for non-drives)
+    std::array<AxisState, kMaxAxes> axis_states{};
     uint32_t emcy_count = 0;
     uint32_t sdo_abort_count = 0;
     uint32_t reboot_count = 0;

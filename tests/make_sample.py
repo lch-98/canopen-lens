@@ -7,6 +7,9 @@ Scenario (two CiA 402 drives + one I/O node):
   * node 3: I/O module; heartbeat gap at t=4.0 s and lost for good at t=5.5 s
   * an SDO request to node 4, which does not exist, gets no answer
   * two bus error frames at t=4.1 s
+  * node 5: two-axis drive (CiA 402-2, axis 2 objects at 0x6800+). Axis 2 is blocked
+    at t=2.0 s (EMCY 0x7121) and recovers with a fault reset at t=2.5 s while axis 1
+    keeps running
 """
 
 from __future__ import annotations
@@ -50,7 +53,7 @@ class Log:
 def build() -> str:
     L = Log()
     # boot-up
-    for n in (1, 2, 3):
+    for n in (1, 2, 3, 5):
         L.add(0.010 * n, 0x700 + n, b"\x00")
 
     # identify devices
@@ -79,6 +82,20 @@ def build() -> str:
     L.sdo_write(0.260, 2, 0x6060, 0, 3, 1)
     L.sdo_write(0.265, 2, 0x2001, 0, 1, 2, abort=0x06020000)
     L.sdo_write(0.270, 2, 0x1017, 0, 100, 2)
+    # node 5: two-axis drive, both axes configured over SDO
+    L.sdo_read(0.140, 5, 0x1000, 0, 0x00020192, 4)
+    t = 0.285
+    for index, sub, value, size in [
+        (0x1A00, 0, 0, 1), (0x1A00, 1, 0x60410010, 4), (0x1A00, 2, 0x68410010, 4), (0x1A00, 3, 0x606C0020, 4),
+        (0x1A00, 0, 3, 1),
+        (0x1A01, 0, 0, 1), (0x1A01, 1, 0x686C0020, 4), (0x1A01, 0, 1, 1),
+        (0x1600, 0, 0, 1), (0x1600, 1, 0x60400010, 4), (0x1600, 2, 0x68400010, 4), (0x1600, 0, 2, 1),
+        (0x1601, 0, 0, 1), (0x1601, 1, 0x60FF0020, 4), (0x1601, 2, 0x68FF0020, 4), (0x1601, 0, 2, 1),
+        (0x6060, 0, 3, 1), (0x6860, 0, 3, 1), (0x1017, 0, 100, 2),
+    ]:
+        L.sdo_write(t, 5, index, sub, value, size)
+        t += 0.005
+
     # node 4 does not exist
     L.sdo_read(0.280, 4, 0x1000, 0, 0, 4)
     L.frames.pop()  # drop the answer: nobody replies
@@ -86,10 +103,11 @@ def build() -> str:
     # start all nodes
     L.add(0.400, 0x000, b"\x01\x00")
 
-    hb_state = {1: 0x7F, 2: 0x7F, 3: 0x7F}
-    sw = {1: 0x0250, 2: 0x0250}
-    cw = {1: 0x0000, 2: 0x0000}
-    vel = {1: 0, 2: 0}
+    hb_state = {1: 0x7F, 2: 0x7F, 3: 0x7F, 5: 0x7F}
+    # keys: node number, or (node, axis) for the two-axis node 5
+    sw = {1: 0x0250, 2: 0x0250, (5, 0): 0x0250, (5, 1): 0x0250}
+    cw = {1: 0x0000, 2: 0x0000, (5, 0): 0x0000, (5, 1): 0x0000}
+    vel = {1: 0, 2: 0, (5, 0): 0, (5, 1): 0}
 
     def drive_step(n, t):
         c = cw[n]
@@ -150,6 +168,38 @@ def build() -> str:
             else:
                 vel[n] = 0
 
+        # node 5: two axes, axis 2 gets blocked at 2.0 s and is reset at 2.5 s
+        for ax in ((5, 0), (5, 1)):
+            if t < 0.6:
+                cw[ax] = 0x06
+            elif t < 0.7:
+                cw[ax] = 0x07
+            elif ax == (5, 1) and 2.50 <= t < 2.52:
+                cw[ax] = 0x80
+            elif ax == (5, 1) and 2.52 <= t < 2.60:
+                cw[ax] = 0x06
+            elif ax == (5, 1) and 2.60 <= t < 2.70:
+                cw[ax] = 0x07
+            else:
+                cw[ax] = 0x0F
+            if ax == (5, 1) and abs(t - 2.000) < 1e-9:
+                L.add(t + 0.0004, 0x085, struct.pack("<HB5s", 0x7121, 0x01, b"\x02\x00\x00\x00\x00"))
+                sw[ax] = 0x0218
+            if ax == (5, 1) and (cw[ax] & 0x80) and (sw[ax] & 0x08):
+                sw[ax] = 0x0250
+                L.add(t + 0.0006, 0x085, struct.pack("<HB5s", 0x0000, 0x00, bytes(5)))
+            drive_step(ax, t)
+            target = 800 if ax == (5, 0) else -800
+            if (sw[ax] & 0x6F) == 0x27:
+                vel[ax] += (target - vel[ax]) // 8 if abs(target - vel[ax]) > 8 else target - vel[ax]
+            else:
+                vel[ax] = 0
+        L.add(t + 0.00025, 0x185, struct.pack("<HHi", sw[(5, 0)], sw[(5, 1)], vel[(5, 0)]))
+        L.add(t + 0.00035, 0x285, struct.pack("<i", vel[(5, 1)]))
+        L.add(t + 0.00055, 0x205, struct.pack("<HH", cw[(5, 0)], cw[(5, 1)]))
+        L.add(t + 0.00065, 0x305, struct.pack("<ii", 800 if cw[(5, 0)] == 0x0F else 0,
+                                                 -800 if cw[(5, 1)] == 0x0F else 0))
+
         # PDOs: node 1 uses the custom mapping, node 2 the CiA 402 default
         L.add(t + 0.0002, 0x181, struct.pack("<Hi", sw[1], vel[1]))
         L.add(t + 0.0003, 0x182, struct.pack("<H", sw[2]))
@@ -160,7 +210,7 @@ def build() -> str:
 
         # heartbeats every 100 ms
         if k % 10 == 3:
-            for n in (1, 2, 3):
+            for n in (1, 2, 3, 5):
                 if t >= 0.41:
                     hb_state[n] = 0x05
                 if n == 3 and (4.0 <= t < 4.6 or t >= 5.5):

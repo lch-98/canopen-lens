@@ -42,7 +42,9 @@ public:
     const Record& record(size_t i) const { return records_.at(i); }
     const std::vector<Issue>& issues() const { return issues_; }
     std::vector<NodeInfo> nodes() const;
-    const std::vector<StatePoint>& axis_timeline(uint8_t node) const;
+    const std::vector<StatePoint>& axis_timeline(uint8_t node, uint8_t axis = 0) const;
+    std::vector<AxisWord> axis_words(size_t row) const;
+    uint8_t axis_count(uint8_t node) const { return node < node_info_.size() ? node_info_[node].axis_count : 0; }
     const PdoMapping& mapping(uint32_t ref) const { return mappings_.at(ref); }
     size_t mapping_count() const { return mappings_.size(); }
     std::vector<PdoField> pdo_fields(size_t row) const;
@@ -68,7 +70,8 @@ private:
     std::vector<Record> records_;
     std::vector<Issue> issues_;
     std::vector<NodeInfo> node_info_;          // indexed by node-ID (0..127)
-    std::vector<std::vector<StatePoint>> timelines_;
+    std::vector<std::vector<StatePoint>> timelines_;   // index: node * kMaxAxes + axis
+    std::vector<AxisWord> words_;
     std::vector<PdoMapping> mappings_;
     std::map<uint8_t, bool> drive_override_;
     std::map<uint32_t, std::vector<PdoMapEntry>> base_mappings_;  // key: node<<8 | tx<<4 | num

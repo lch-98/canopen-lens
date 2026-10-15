@@ -11,6 +11,7 @@ Quick start::
 
 from ._core import (
     AxisState,
+    AxisWord,
     CwCommand,
     IssueType,
     Kind,
@@ -26,10 +27,11 @@ from ._core import (
 from .eds import EdsFile
 from .log import CanopenLog, open_log
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "AxisState",
+    "AxisWord",
     "CanopenLog",
     "CwCommand",
     "EdsFile",

@@ -71,17 +71,15 @@ uint64_t extract_bits(const Frame& f, unsigned bit_off, unsigned bits, bool& com
     return v;
 }
 
-bool find_field(const std::vector<PdoMapEntry>& entries, uint16_t index, unsigned& off, unsigned& bits) {
-    unsigned o = 0;
-    for (const auto& e : entries) {
-        if (e.index == index && e.sub == 0) {
-            off = o;
-            bits = e.bits;
+bool is_cia402_object(uint16_t base) {
+    switch (base) {
+        case 0x603F: case 0x6040: case 0x6041: case 0x6060: case 0x6061: case 0x6064:
+        case 0x606C: case 0x6071: case 0x6077: case 0x607A: case 0x6081: case 0x6083:
+        case 0x6084: case 0x6098: case 0x60FF: case 0x6502:
             return true;
-        }
-        o += e.bits;
+        default:
+            return false;
     }
-    return false;
 }
 
 }  // namespace
@@ -103,17 +101,19 @@ struct Trace::NodeState {
     uint32_t rpdo_ref[4] = {UINT32_MAX, UINT32_MAX, UINT32_MAX, UINT32_MAX};
     std::vector<PdoMapEntry> edit_t[4], edit_r[4];
 
-    // CiA 402
-    AxisState state = AxisState::UNKNOWN;
-    uint16_t last_cw = 0;
-    bool have_cw = false;
-    CwCommand last_cmd = CwCommand::NONE;
-    bool expect_active = false;
-    bool expect_fault_cleared = false;  // fault reset: any non-fault state is fine
-    AxisState expect_state = AxisState::UNKNOWN;
-    double expect_deadline = 0.0;
-    uint32_t expect_row = 0;
-    CwCommand expect_cmd = CwCommand::NONE;
+    // CiA 402, one state machine per axis
+    struct Axis {
+        AxisState state = AxisState::UNKNOWN;
+        uint16_t last_cw = 0;
+        bool have_cw = false;
+        bool expect_active = false;
+        bool expect_fault_cleared = false;  // fault reset: any non-fault state is fine
+        AxisState expect_state = AxisState::UNKNOWN;
+        double expect_deadline = 0.0;
+        uint32_t expect_row = 0;
+    };
+    Axis axes[kMaxAxes];
+    int max_axis = -1;
 
     // EMCY / NMT / heartbeat
     int64_t last_emcy_row = -1;
@@ -156,6 +156,7 @@ uint32_t Trace::push_mapping(PdoMapping m) {
 
 void Trace::detect_drives(std::vector<bool>& drive) const {
     drive.assign(128, false);
+    std::vector<bool> not_drive(128, false);
     if (opt_.auto_detect_drives) {
         for (const auto& f : parsed_.frames) {
             if (f.ext || f.rtr || f.error || f.dlc < 4) continue;
@@ -167,22 +168,28 @@ void Trace::detect_drives(std::vector<bool>& drive) const {
             bool init = req ? (cs == 1 || cs == 2) : (cs == 2 || cs == 3);
             if (!init) continue;
             uint16_t index = static_cast<uint16_t>(f.data[1] | (f.data[2] << 8));
-            if (index >= 0x6000 && index <= 0x67FF) drive[node] = true;
-            // mapping the statusword/controlword into a PDO is just as clear a sign
+            // Other profiles (e.g. CiA 401 I/O) also live in 0x6000-0x9FFF, so only
+            // objects that are typical for CiA 402 count, on any axis.
+            if (f.data[3] == 0 && is_cia402_object(axis_base(index))) drive[node] = true;
+            // mapping a statusword/controlword into a PDO is just as clear a sign
             bool map_obj = (index >= 0x1600 && index <= 0x1603) || (index >= 0x1A00 && index <= 0x1A03);
             if (req && cs == 1 && map_obj && f.data[3] >= 1 && (f.data[0] & 0x02) && f.dlc >= 8) {
-                uint16_t mapped = static_cast<uint16_t>(f.data[6] | (f.data[7] << 8));
+                uint16_t mapped = axis_base(static_cast<uint16_t>(f.data[6] | (f.data[7] << 8)));
                 if (mapped == 0x6040 || mapped == 0x6041) drive[node] = true;
             }
             if (resp && cs == 2 && index == 0x1000 && (f.data[0] & 0x02) && f.dlc >= 6) {
-                if ((le32(&f.data[4], 2) & 0xFFFF) == 402) drive[node] = true;
+                bool is402 = (le32(&f.data[4], 2) & 0xFFFF) == 402;
+                if (is402) drive[node] = true;
+                else not_drive[node] = true;  // the device says it is something else
             }
         }
     }
+    for (int n = 0; n < 128; ++n)
+        if (not_drive[n]) drive[n] = false;
     for (const auto& [key, entries] : base_mappings_) {
         uint8_t node = static_cast<uint8_t>(key >> 8);
         for (const auto& e : entries)
-            if (node < 128 && (e.index == 0x6040 || e.index == 0x6041)) drive[node] = true;
+            if (node < 128 && (axis_base(e.index) == 0x6040 || axis_base(e.index) == 0x6041)) drive[node] = true;
     }
     for (const auto& [node, val] : drive_override_)
         if (node < 128) drive[node] = val;
@@ -195,7 +202,9 @@ void Trace::analyze() {
     mappings_.clear();
     node_info_.assign(128, NodeInfo{});
     for (int n = 0; n < 128; ++n) node_info_[n].node = static_cast<uint8_t>(n);
-    timelines_.assign(128, {});
+    timelines_.assign(128 * kMaxAxes, {});
+    words_.clear();
+    for (auto& ni : node_info_) ni.axis_states.fill(AxisState::UNKNOWN);
 
     std::vector<bool> drive;
     detect_drives(drive);
@@ -233,8 +242,8 @@ void Trace::analyze() {
         }
     }
 
-    auto check_expectation = [&](uint8_t node, double t, bool at_end) {
-        NodeState& s = st[node];
+    auto check_axis = [&](uint8_t node, uint8_t axis, double t, bool at_end) {
+        NodeState::Axis& s = st[node].axes[axis];
         if (!s.expect_active || !timed) return;
         bool reached = s.expect_fault_cleared ? (s.state != AxisState::FAULT && s.state != AxisState::UNKNOWN)
                                               : (s.state == s.expect_state);
@@ -250,22 +259,46 @@ void Trace::analyze() {
             is.t = frames[s.expect_row].t;
             is.row = s.expect_row;
             is.node = node;
+            is.axis = axis;
             is.code = static_cast<uint32_t>(static_cast<int>(s.state));
             is.value = opt_.state_timeout;
             add_issue(is);
             s.expect_active = false;
         }
     };
+    auto check_expectation = [&](uint8_t node, double t, bool at_end) {
+        for (int a = 0; a <= st[node].max_axis; ++a) check_axis(node, static_cast<uint8_t>(a), t, at_end);
+    };
 
-    auto on_statusword = [&](uint8_t node, uint32_t row, uint16_t sw) {
+    auto add_word = [&](uint32_t row, const AxisWord& w) {
         Record& r = records_[row];
-        NodeState& s = st[node];
-        r.has_statusword = true;
-        r.statusword = sw;
-        r.axis_state = decode_statusword(sw);
-        if (r.axis_state != s.state) {
-            timelines_[node].push_back({frames[row].t, row, r.axis_state, sw});
-            if (r.axis_state == AxisState::FAULT || r.axis_state == AxisState::FAULT_REACTION_ACTIVE) {
+        if (r.words_count == 0) r.words_off = static_cast<uint32_t>(words_.size());
+        // entries of one frame are contiguous because frames are processed in order
+        words_.push_back(w);
+        r.words_count++;
+    };
+    auto note_axis = [&](uint8_t node, uint8_t axis) {
+        NodeState& ns = st[node];
+        if (axis > ns.max_axis) ns.max_axis = axis;
+        node_info_[node].axis_count = static_cast<uint8_t>(ns.max_axis + 1);
+    };
+
+    auto on_statusword = [&](uint8_t node, uint8_t axis, uint32_t row, uint16_t sw) {
+        Record& r = records_[row];
+        NodeState& ns = st[node];
+        NodeState::Axis& s = ns.axes[axis];
+        note_axis(node, axis);
+        AxisState state = decode_statusword(sw);
+        if (!r.has_statusword) {
+            r.has_statusword = true;
+            r.sw_axis = axis;
+            r.statusword = sw;
+            r.axis_state = state;
+        }
+        add_word(row, AxisWord{axis, true, sw, state, CwCommand::NONE});
+        if (state != s.state) {
+            timelines_[node * kMaxAxes + axis].push_back({frames[row].t, row, state, sw});
+            if (state == AxisState::FAULT || state == AxisState::FAULT_REACTION_ACTIVE) {
                 bool was_fault = s.state == AxisState::FAULT || s.state == AxisState::FAULT_REACTION_ACTIVE;
                 if (!was_fault) {
                     Issue is;
@@ -274,50 +307,58 @@ void Trace::analyze() {
                     is.t = frames[row].t;
                     is.row = row;
                     is.node = node;
+                    is.axis = axis;
                     is.code = sw;
-                    if (s.last_emcy_row >= 0 && (!timed || frames[row].t - s.last_emcy_t < 2.0))
-                        is.related_row = s.last_emcy_row;
+                    if (ns.last_emcy_row >= 0 && (!timed || frames[row].t - ns.last_emcy_t < 2.0))
+                        is.related_row = ns.last_emcy_row;
                     add_issue(is);
                 }
-            } else if (r.axis_state == AxisState::QUICK_STOP_ACTIVE) {
+            } else if (state == AxisState::QUICK_STOP_ACTIVE) {
                 Issue is;
                 is.severity = Severity::WARNING;
                 is.type = IssueType::AXIS_QUICK_STOP;
                 is.t = frames[row].t;
                 is.row = row;
                 is.node = node;
+                is.axis = axis;
                 is.code = sw;
                 add_issue(is);
             }
-            s.state = r.axis_state;
-            node_info_[node].axis_state = s.state;
+            s.state = state;
+            node_info_[node].axis_states[axis] = state;
+            if (axis == 0) node_info_[node].axis_state = state;
         }
-        check_expectation(node, frames[row].t, false);
+        check_axis(node, axis, frames[row].t, false);
     };
 
-    auto on_controlword = [&](uint8_t node, uint32_t row, uint16_t cw) {
+    auto on_controlword = [&](uint8_t node, uint8_t axis, uint32_t row, uint16_t cw) {
         Record& r = records_[row];
-        NodeState& s = st[node];
-        r.has_controlword = true;
-        r.controlword = cw;
-        r.cw_command = decode_controlword(cw, s.have_cw ? s.last_cw : 0);
+        NodeState::Axis& s = st[node].axes[axis];
+        note_axis(node, axis);
+        CwCommand cmd = decode_controlword(cw, s.have_cw ? s.last_cw : 0);
+        if (!r.has_controlword) {
+            r.has_controlword = true;
+            r.cw_axis = axis;
+            r.controlword = cw;
+            r.cw_command = cmd;
+        }
+        add_word(row, AxisWord{axis, false, cw, AxisState::UNKNOWN, cmd});
         bool changed = !s.have_cw || cw != s.last_cw;
         s.last_cw = cw;
         s.have_cw = true;
-        if (!changed || r.cw_command == CwCommand::NONE) return;
-        s.last_cmd = r.cw_command;
-        if (r.cw_command == CwCommand::ENABLE_OPERATION && s.state != AxisState::OPERATION_ENABLED) {
+        if (!changed || cmd == CwCommand::NONE) return;
+        if (cmd == CwCommand::ENABLE_OPERATION && s.state != AxisState::OPERATION_ENABLED) {
             s.expect_active = true;
             s.expect_fault_cleared = false;
             s.expect_state = AxisState::OPERATION_ENABLED;
             s.expect_deadline = frames[row].t + opt_.state_timeout;
             s.expect_row = row;
-        } else if (r.cw_command == CwCommand::FAULT_RESET && s.state == AxisState::FAULT) {
+        } else if (cmd == CwCommand::FAULT_RESET && s.state == AxisState::FAULT) {
             s.expect_active = true;
             s.expect_fault_cleared = true;
             s.expect_deadline = frames[row].t + opt_.state_timeout;
             s.expect_row = row;
-        } else if (s.expect_active && !s.expect_fault_cleared && r.cw_command != CwCommand::ENABLE_OPERATION) {
+        } else if (s.expect_active && !s.expect_fault_cleared && cmd != CwCommand::ENABLE_OPERATION) {
             s.expect_active = false;  // the master changed its mind before the enable completed
         }
     };
@@ -346,8 +387,8 @@ void Trace::analyze() {
             m.entries = edit;
             uint32_t ref = push_mapping(std::move(m));
             (tx ? s.tpdo_ref : s.rpdo_ref)[num - 1] = ref;
-        } else if (index == 0x6040 && sub == 0 && drive[node]) {
-            on_controlword(node, row, static_cast<uint16_t>(value));
+        } else if (axis_base(index) == 0x6040 && sub == 0 && drive[node]) {
+            on_controlword(node, static_cast<uint8_t>(axis_of(index)), row, static_cast<uint16_t>(value));
         }
     };
 
@@ -446,15 +487,22 @@ void Trace::analyze() {
                 uint32_t ref = (tx ? st[node].tpdo_ref : st[node].rpdo_ref)[r.pdo_num - 1];
                 r.map_ref = ref;
                 if (ref != UINT32_MAX && drive[node]) {
-                    unsigned off, bits;
-                    bool complete;
-                    if (tx && find_field(mappings_[ref].entries, 0x6041, off, bits) && bits == 16) {
-                        uint64_t v = extract_bits(f, off, bits, complete);
-                        if (complete) on_statusword(node, i, static_cast<uint16_t>(v));
-                    }
-                    if (!tx && find_field(mappings_[ref].entries, 0x6040, off, bits) && bits == 16) {
-                        uint64_t v = extract_bits(f, off, bits, complete);
-                        if (complete) on_controlword(node, i, static_cast<uint16_t>(v));
+                    // copy: the handlers may push new mappings and invalidate references
+                    const std::vector<PdoMapEntry> entries = mappings_[ref].entries;
+                    unsigned off = 0;
+                    for (const auto& e : entries) {
+                        uint16_t base = axis_base(e.index);
+                        bool want = e.sub == 0 && e.bits == 16 && (tx ? base == 0x6041 : base == 0x6040);
+                        if (want) {
+                            bool complete;
+                            uint64_t v = extract_bits(f, off, e.bits, complete);
+                            uint8_t axis = static_cast<uint8_t>(axis_of(e.index));
+                            if (complete) {
+                                if (tx) on_statusword(node, axis, i, static_cast<uint16_t>(v));
+                                else on_controlword(node, axis, i, static_cast<uint16_t>(v));
+                            }
+                        }
+                        off += e.bits;
                     }
                 }
             }
@@ -550,8 +598,9 @@ void Trace::analyze() {
                                     node_info_[node].device_type = r.value;
                                     node_info_[node].device_type_known = true;
                                 }
-                                if (r.index == 0x6041 && r.sub == 0 && drive[node])
-                                    on_statusword(node, i, static_cast<uint16_t>(r.value));
+                                if (axis_base(r.index) == 0x6041 && r.sub == 0 && drive[node])
+                                    on_statusword(node, static_cast<uint8_t>(axis_of(r.index)), i,
+                                                  static_cast<uint16_t>(r.value));
                             }
                             break;
                         case 3:  // download (write) response
@@ -679,7 +728,11 @@ void Trace::analyze() {
         }
     }
 
-    for (int n = 1; n < 128; ++n) node_info_[n].is_drive = drive[n];
+    for (int n = 1; n < 128; ++n) {
+        node_info_[n].is_drive = drive[n];
+        if (drive[n] && node_info_[n].axis_count == 0) node_info_[n].axis_count = 1;
+        if (!drive[n]) node_info_[n].axis_count = 0;
+    }
     for (const auto& [node, val] : drive_override_)
         if (node < 128) node_info_[node].drive_forced = true;
 
@@ -706,10 +759,16 @@ std::vector<NodeInfo> Trace::nodes() const {
     return out;
 }
 
-const std::vector<StatePoint>& Trace::axis_timeline(uint8_t node) const {
+const std::vector<StatePoint>& Trace::axis_timeline(uint8_t node, uint8_t axis) const {
     static const std::vector<StatePoint> empty;
-    if (node >= timelines_.size()) return empty;
-    return timelines_[node];
+    size_t k = static_cast<size_t>(node) * kMaxAxes + axis;
+    if (axis >= kMaxAxes || k >= timelines_.size()) return empty;
+    return timelines_[k];
+}
+
+std::vector<AxisWord> Trace::axis_words(size_t row) const {
+    const Record& r = records_.at(row);
+    return std::vector<AxisWord>(words_.begin() + r.words_off, words_.begin() + r.words_off + r.words_count);
 }
 
 std::vector<PdoField> Trace::pdo_fields(size_t row) const {
