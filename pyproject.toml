@@ -1,0 +1,55 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.12"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "canopen-lens"
+version = "0.1.0"
+description = "Beginner-friendly CANopen log viewer: open a candump log and see what every frame means"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Chunghyeon Lee" }]
+requires-python = ">=3.9"
+dependencies = []
+keywords = ["canopen", "can", "candump", "cia402", "socketcan", "debugging", "robotics"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Manufacturing",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Hardware",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.5"]
+test = ["pytest>=7"]
+
+[project.scripts]
+canopen-lens = "canopen_lens.cli:main"
+
+[project.gui-scripts]
+canopen-lens-gui = "canopen_lens.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/lch-98/canopen-lens"
+Issues = "https://github.com/lch-98/canopen-lens/issues"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = ["src/canopen_lens"]
+build-dir = "build/{wheel_tag}"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "*-musllinux_* *-win32 *_i686"
+test-requires = "pytest"
+test-command = "pytest {project}/tests -q"

@@ -1,0 +1,43 @@
+# 배포 절차 (PyPI)
+
+PyPI 업로드는 GitHub Actions가 대신 합니다. API 토큰을 저장소에 넣지 않는 "Trusted Publishing" 방식이라
+처음 한 번만 아래 설정을 해 두면, 이후에는 태그만 올리면 됩니다.
+
+## 처음 한 번
+
+1. GitHub에 `lch-98/canopen-lens` 저장소를 만들고 이 폴더를 push 합니다.
+   ```bash
+   git remote add origin https://github.com/lch-98/canopen-lens.git
+   git push -u origin main
+   ```
+2. GitHub 저장소 → **Settings → Environments → New environment** 에서 이름을 `pypi` 로 만듭니다.
+3. https://pypi.org 에 로그인 → 계정 메뉴 **Your projects → Publishing** →
+   **Add a new pending publisher** 에 아래 값을 넣습니다.
+
+   | 항목 | 값 |
+   |---|---|
+   | PyPI Project Name | `canopen-lens` |
+   | Owner | `lch-98` |
+   | Repository name | `canopen-lens` |
+   | Workflow name | `release.yml` |
+   | Environment name | `pypi` |
+
+## 매 릴리스
+
+1. `pyproject.toml` 의 `version` 과 `src/canopen_lens/__init__.py` 의 `__version__` 을 같은 값으로 올립니다.
+2. 커밋 후 태그를 push 합니다.
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+3. GitHub → **Actions → Release** 가 Linux x86_64 / aarch64, Windows x64 휠을 빌드하고 PyPI에 올립니다.
+
+태그 없이 빌드만 확인하고 싶으면 **Actions → Release → Run workflow** 를 누르면 됩니다 (업로드는 하지 않음).
+
+## 로컬 확인
+
+```bash
+pip install -e ".[gui,test]"
+pytest
+python -m build          # dist/ 에 sdist 와 현재 플랫폼용 휠 생성
+```
