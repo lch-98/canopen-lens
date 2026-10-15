@@ -147,6 +147,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("sub", &Issue::sub)
         .def_readonly("value", &Issue::value)
         .def_readonly("expected", &Issue::expected)
+        .def_readonly("related_code", &Issue::related_code)
         .def_property_readonly("related_row", [](const Issue& i) -> py::object {
             if (i.related_row < 0) return py::none();
             return py::int_(i.related_row);
@@ -287,6 +288,41 @@ PYBIND11_MODULE(_core, m) {
             },
             py::arg("kinds") = py::none(), py::arg("node") = -1, py::arg("issues_only") = false,
             py::arg("index") = -1);
+
+    py::class_<LiveDecoder>(m, "LiveDecoder")
+        .def(py::init<const Options&>(), py::arg("options") = Options{})
+        .def("set_drive", &LiveDecoder::set_drive, py::arg("node"), py::arg("is_drive"))
+        .def("set_base_mapping", &LiveDecoder::set_base_mapping, py::arg("node"), py::arg("tx"), py::arg("num"),
+             py::arg("entries"))
+        .def("reset", &LiveDecoder::reset)
+        .def(
+            "feed",
+            [](LiveDecoder& d, double t, uint32_t id, py::bytes data, bool ext, bool rtr, bool error, bool fd) {
+                std::string s = data;
+                return d.feed(t, id, reinterpret_cast<const uint8_t*>(s.data()), s.size(), ext, rtr, error, fd);
+            },
+            py::arg("t"), py::arg("id"), py::arg("data") = py::bytes(), py::arg("is_extended") = false,
+            py::arg("is_remote") = false, py::arg("is_error") = false, py::arg("is_fd") = false)
+        .def("tick", &LiveDecoder::tick, py::arg("t"))
+        .def("last_frame", &LiveDecoder::last_frame, py::return_value_policy::copy)
+        .def("last_record", &LiveDecoder::last_record, py::return_value_policy::copy)
+        .def("last_words", &LiveDecoder::last_words)
+        .def("last_pdo_fields", &LiveDecoder::last_pdo_fields)
+        .def_property_readonly("frame_count", &LiveDecoder::frame_count)
+        .def_property_readonly("issues", &LiveDecoder::issues)
+        .def("issues_from", [](const LiveDecoder& d, size_t start) {
+            const auto& all = d.issues();
+            if (start >= all.size()) return std::vector<Issue>{};
+            return std::vector<Issue>(all.begin() + start, all.end());
+        }, py::arg("start"))
+        .def_property_readonly("issue_count", [](const LiveDecoder& d) { return d.issues().size(); })
+        .def_property_readonly("nodes", &LiveDecoder::nodes)
+        .def("axis_timeline", &LiveDecoder::axis_timeline, py::arg("node"), py::arg("axis") = 0)
+        .def("axis_count", &LiveDecoder::axis_count, py::arg("node"))
+        .def("mapping", &LiveDecoder::mapping, py::arg("ref"), py::return_value_policy::copy)
+        .def_property_readonly("t0", &LiveDecoder::t0)
+        .def_property_readonly("options", [](LiveDecoder& d) -> Options& { return d.options(); },
+                               py::return_value_policy::reference_internal);
 
     m.def("decode_statusword", &decode_statusword, py::arg("statusword"));
     m.def("decode_controlword", &decode_controlword, py::arg("controlword"), py::arg("previous") = 0);

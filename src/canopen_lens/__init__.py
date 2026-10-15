@@ -4,9 +4,11 @@ Quick start::
 
     from canopen_lens import open_log
     log = open_log("candump.log")
+    print(log.report(lang="en"))          # plain-language diagnosis
+
     for issue in log.issues:
-        title, detail = log.issue_text(issue, lang="en")
-        print(title)
+        ex = log.explain(issue, lang="en")
+        print(ex.title, ex.steps)
 """
 
 from ._core import (
@@ -24,10 +26,12 @@ from ._core import (
     decode_controlword,
     decode_statusword,
 )
-from .eds import EdsFile
-from .log import CanopenLog, open_log
+__version__ = "0.3.0"
 
-__version__ = "0.2.0"
+from .eds import EdsFile  # noqa: E402
+from .explain import Explanation, HealthSummary, IssueGroup, glossary  # noqa: E402
+from .live import LiveDecoder  # noqa: E402
+from .log import CanopenLog, open_log  # noqa: E402
 
 __all__ = [
     "AxisState",
@@ -35,6 +39,11 @@ __all__ = [
     "CanopenLog",
     "CwCommand",
     "EdsFile",
+    "Explanation",
+    "HealthSummary",
+    "IssueGroup",
+    "LiveDecoder",
+    "glossary",
     "IssueType",
     "Kind",
     "MapOrigin",

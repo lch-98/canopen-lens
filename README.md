@@ -1,121 +1,165 @@
 # CANopen Lens
 
-**Open a `candump` log and see, in plain language, what every CANopen frame means and what went wrong.**
+**Give it a `candump` log and it tells you, in plain words, what happened on your CANopen network and what to check — as a desktop app and as a Python library.**
 
-CANopen Lens is a desktop viewer for people who are new to CANopen (and a fast triage tool for people who are not).
-Drop in a log recorded with `candump` and it will:
+[한국어 설명서 (Korean)](README.ko.md)
 
-- **Decode every frame** — NMT, SYNC, EMCY, PDO, SDO (expedited, segmented, abort), heartbeat — into a one-line explanation.
-- **Track CiA 402 drives, including multi-axis devices** — decode controlword commands and statusword states per axis (CiA 402-2, axis objects every `0x800`: `0x6041`, `0x6841`, …) and draw each axis' state machine on a timeline.
-- **Use your EDS files** — object names, data types and the PDO mapping come from the EDS; PDO remapping done over SDO inside the log is followed automatically.
-- **Diagnose problems** — SDO aborts (with the reason and what to check), SDO requests without an answer, EMCY codes, heartbeat gaps and lost nodes, unexpected reboots, drive faults and failed enable / fault-reset sequences, bus error frames.
+![Overview screen](https://raw.githubusercontent.com/lch-98/canopen-lens/main/docs/overview_en.png)
 
-The UI is available in **Korean and English** (one click to switch).
+Made so that someone new to CANopen can find a root cause from a single log, without knowing CAN IDs or bytes:
 
-The decoding core is written in C++ (pybind11), so a log with two million frames loads in about a second on a desktop PC; the GUI is PySide6.
+- **A verdict** – "Problems found – 3 kinds of error, 1 kind of warning"
+- **The status of every device** – "Node 5 (CiA 402 drive): had problems but recovered · Axis 2: faulted 1 time but recovered to Enabled"
+- **What to check first** – every problem explained as *What happened? / Why does it matter? / How to check*
+
+The UI and all explanations are available in **English and Korean**.
+
+---
 
 ## Install
 
-```bash
-pip install "canopen-lens[gui]"
-```
+### 1. Download the app (no Python needed)
 
-Prebuilt wheels are provided for Linux x86_64, Linux aarch64 (Raspberry Pi 4/5 with a 64-bit OS) and Windows x64, Python 3.9–3.14.
-Leave out `[gui]` if you only want the Python API / command line report.
+Get the file for your computer from [Releases](https://github.com/lch-98/canopen-lens/releases), unpack it and run it.
 
-## Use
+| System | File | Run |
+|---|---|---|
+| Windows 10/11 | `CANopenLens-…-windows-x64.zip` | double-click `CANopenLens\CANopenLens.exe` |
+| Linux (Ubuntu 22.04+ and similar) | `CANopenLens-…-linux-x86_64.tar.gz` | `CANopenLens/CANopenLens` |
+| Raspberry Pi 4/5 (64-bit OS) | `CANopenLens-…-linux-aarch64.tar.gz` | `CANopenLens/CANopenLens` |
 
-### GUI
-
-```bash
-canopen-lens                 # opens the window — drag a log file onto it
-canopen-lens robot.log       # opens a log directly
-canopen-lens --en robot.log  # start in English
-```
-
-No log at hand? Click **Try the sample log**: it contains two CiA 402 drives and an I/O module with an SDO abort,
-an over-current fault, a failed fault reset, a heartbeat gap and a node that disappears, plus a two-axis drive whose
-second axis faults while the first keeps running.
-
-### Recording a log
+### 2. pip (Python 3.9+)
 
 ```bash
-candump -l can0              # writes candump-YYYY-MM-DD_HHMMSS.log  (recommended)
-candump -t a can0 > log.txt  # console output with absolute timestamps also works
+pip install "canopen-lens[gui]"     # app + library
+pip install canopen-lens            # library and command line only (servers, headless Pi)
 ```
 
-### Command line report
+Prebuilt wheels are published for Windows x64, Linux x86_64 and Linux aarch64, so no C++ compiler is needed.
+Run `canopen-lens` to open the window.
 
-```bash
-canopen-lens report robot.log --lang en -v
-canopen-lens report robot.log --eds 1=drive.eds --eds 2=drive.eds --min-severity warning
+---
+
+## Five-minute guide
+
+1. **Record a log** on the Linux PC or Raspberry Pi attached to the machine: `candump -l can0`, reproduce the problem, stop with `Ctrl+C`. (Saved console output such as `candump -t a can0 > log.txt` works too.)
+2. **Open it** – drop the file on the window. No log yet? Click **Try the sample log**.
+3. **Read the overview** – the colour at the top is the verdict; below it are the status of each device and the problems to check first, most important first. Repeats of the same problem are shown once with a count.
+4. **Dig deeper** – **Show the messages** jumps to the moment of a problem, with every message explained in one line.
+5. **State timeline** – how each device and motor axis changed state over time. Red is a fault, a gap means the device went silent. Click a bar to jump there.
+
+Unknown words are explained under **Glossary**. **Save results** writes a readable report (.txt), JSON or an Excel-friendly CSV.
+
+---
+
+## What it finds
+
+| Finding | In plain words |
+|---|---|
+| SDO failed | The device refused a setting; the abort code is explained together with where to look |
+| No SDO answer | The device did not reply; check node-ID, power and wiring in that order |
+| Emergency (EMCY) | The device reported an error; the code is turned into readable text |
+| Heartbeat gap / stopped | The device went quiet for longer than its normal period, or never came back |
+| Unexpected restart | The device rebooted without a reset command (power dip, watchdog, …) |
+| Drive fault | A motor drive stopped with a fault; the EMCY at the same moment is linked as the likely cause |
+| Enable did not work | Enable operation was sent but the drive never turned on (wrong order, motor power, STO) |
+| Fault reset did not work | A reset was sent but the fault stayed (its cause is still there) |
+| Quick stop | The drive entered quick stop |
+| CAN bus errors | Corrupted traffic on the wires (termination, bit rate, cabling) |
+
+Verdicts: **✔ OK** – nothing went wrong · **▲ recovered** – something went wrong but was fine again at the end of the log · **✖ needs attention** – still wrong at the end (fault, silent device) or a setting was not applied.
+
+---
+
+## How a log is analysed
+
+```
+(1760500002.000250) can0 185#3702180220030000
+ └ time               └ port └ ID └ data bytes
 ```
 
-`--fail-on-error` makes the command exit with status 1 when errors are found, which is handy in test benches.
+1. **Who sent what.** CANopen IDs are "message type + node-ID": `0x185` = `0x180` (TPDO1, real-time data from a device) + node 5.
+2. **Where the values are.** Which values sit where inside a PDO (the PDO mapping) is taken from, in this order: SDO configuration found earlier in the log → the EDS you attach → the CiA 402 default (assumed, axis 1 only).
+3. **Values into words.** Here: axis 1 statusword + axis 2 statusword + axis 1 actual velocity →
+   `TPDO1: Axis 1 state: Enabled (SW 0x0237), Axis 2 state: Fault (SW 0x0218), Axis 1 Velocity actual value=800`.
+4. **Following the story.** SDO questions are paired with answers; each node's heartbeat period is learned and late heartbeats are flagged; every CiA 402 axis gets its own state machine, commands are checked against the state that follows, and EMCY messages around a fault are linked to it.
+5. **Grouping.** Identical findings are collapsed and sorted by importance.
 
-### Python API
+Decoding runs in C++; a two-million-frame log opens in one to two seconds on an ordinary PC, and only the rows on screen are turned into text, so large logs stay responsive.
+
+---
+
+## Using it from Python
 
 ```python
 from canopen_lens import open_log, Kind
 
-log = open_log("robot.log", eds={1: "drive.eds"})
-for issue in log.issues:
-    title, what_to_check = log.issue_text(issue, lang="en")
-    print(f"{issue.t:8.3f}s  {title}")
+log = open_log("robot.log", eds={1: "drive.eds"})   # EDS optional
 
-for row in log.trace.filter(kinds=[Kind.EMCY]):
+print(log.report("en"))                  # the whole readable report
+
+h = log.health("en")                     # verdict, per-node status, grouped findings
+for group in log.grouped_issues():
+    ex = log.explain(group.first, "en")
+    print(ex.title, group.count, ex.steps)
+
+df = log.to_dataframe("en")              # pandas (pip install pandas)
+log.to_csv("frames.csv")                 # UTF-8 with BOM, opens cleanly in Excel
+log.to_json("result.json")
+
+for row in log.trace.filter(kinds=[Kind.EMCY], node=2):
     print(log.summary(int(row), "en"))
-
-for p in log.trace.axis_timeline(1):      # CiA 402 state changes of node 1
+for p in log.trace.axis_timeline(5, axis=1):  # node 5, axis 2
     print(p.t, p.state)
 ```
 
-## How decoding works
+### Live bus (python-can)
 
-| Step | Where | Notes |
-|---|---|---|
-| Parse `candump` text | C++ | `-l` log format and console format, with or without timestamps (`-t a/z/d`), RTR, CAN FD, error frames |
-| Classify by COB-ID | C++ | CiA 301 predefined connection set |
-| Follow SDO transfers | C++ | Values, segmented transfers, abort codes, missing answers |
-| Track PDO mapping | C++ | EDS → mapping written over SDO in the log → CiA 402 default mapping |
-| CiA 402 state machine | C++ | One state machine per axis (up to 8, objects offset by `0x800`). Nodes count as drives when the log or EDS shows it (device type 402, access to typical CiA 402 objects such as `0x6040/0x6041/0x6060` on any axis, statusword/controlword in a PDO); a device type other than 402 rules it out. This can be overridden per node |
-| Explanations | Python | All wording lives in `describe.py` (Korean/English) |
+```python
+import can
+from canopen_lens import LiveDecoder
 
-## Limitations (v0.1)
+dec = LiveDecoder(eds={1: "drive.eds"})
+with can.Bus(interface="socketcan", channel="can0") as bus:
+    dec.run(bus, lang="en")              # prints findings the moment they happen
+```
 
-- Only `candump` input. PCAN `.trc` is planned next.
-- PDOs are assumed to use the default COB-IDs (`0x180 + node`, …); custom COB-IDs set through `0x1400/0x1800` are not followed yet.
-- The CiA 402 default PDO mapping is only assumed for axis 1. Axes 2–8 are decoded when the EDS or the log itself provides their mapping.
-- Diagnosis is heuristic. It tells you where to look; the device manual has the final word.
+Or push frames yourself with `dec.feed(t, can_id, data)`. Only the newest frame is kept, so memory stays flat however long it runs.
+
+### Command line / CI
+
+```bash
+canopen-lens report robot.log                          # readable report
+canopen-lens report robot.log --brief --fail-on-error  # exit code 1 on errors
+canopen-lens report robot.log --format json -o result.json
+canopen-lens report robot.log --format csv -o frames.csv
+canopen-lens live --channel can0 -v                    # pip install "canopen-lens[live]"
+```
+
+Type hints are included for IDE completion.
+
+---
+
+## Limitations
+
+- Input is `candump` only; PCAN `.trc` is next.
+- PDOs are assumed to use the default COB-IDs (`0x180 + node`, …); COB-IDs changed through `0x1400`/`0x1800` are not followed yet.
+- Axes 2–8 of multi-axis drives are decoded when the EDS or the log provides their PDO mapping.
+- Findings are guidance based on what the log shows; the device manual has the final word.
+- The Python API may still change before 1.0.
 
 ## Development
 
 ```bash
 git clone https://github.com/lch-98/canopen-lens
 cd canopen-lens
-pip install -e ".[gui,test]"
+pip install -e ".[gui,test,pandas,live]"
 pytest
-python tests/make_sample.py   # regenerate the sample log
+python tests/make_sample.py      # regenerate the sample log
 ```
+
+Releases: see [RELEASING.md](RELEASING.md).
 
 ## License
 
 MIT
-
----
-
-## 한국어 소개
-
-`candump` 로그 파일을 끌어다 놓으면 CANopen 프레임 하나하나가 **무슨 뜻인지**, **어디서 문제가 생겼는지**를 쉬운 말로 보여주는 데스크톱 프로그램입니다.
-
-- 모든 프레임(NMT, SYNC, EMCY, PDO, SDO, 하트비트)을 한 줄 설명으로 해석합니다.
-- CiA 402 드라이브의 컨트롤워드 명령과 스테이터스워드 상태를 축별로 해석하고(다축 장치의 `0x6841`, `0x6840` 등 포함), 축 상태 변화를 타임라인으로 보여줍니다.
-- EDS 파일을 지정하면 오브젝트 이름·데이터 타입·PDO 매핑을 그대로 사용하고, 로그 안에서 SDO로 바꾼 매핑도 자동으로 따라갑니다.
-- SDO 실패 원인과 확인할 것, 응답 없는 SDO, EMCY 코드, 하트비트 끊김, 예상치 못한 재부팅, 드라이브 폴트, Enable·폴트 리셋 실패, 버스 에러 프레임을 자동으로 찾아 줍니다.
-
-```bash
-pip install "canopen-lens[gui]"
-canopen-lens            # 창을 열고 로그 파일을 끌어다 놓기
-```
-
-로그는 `candump -l can0`으로 저장하는 것을 권장합니다. 화면 상단의 **English / 한국어** 버튼으로 언어를 바꿀 수 있습니다.

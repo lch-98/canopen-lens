@@ -4,6 +4,72 @@ from __future__ import annotations
 
 _STRINGS: dict[str, tuple[str, str]] = {
     "app_title": ("CANopen Lens", "CANopen Lens"),
+    "tab_overview": ("요약", "Overview"),
+    "verdict_ok": ("문제 없음", "All good"),
+    "verdict_warning": ("주의", "Warnings"),
+    "verdict_error": ("확인 필요", "Needs attention"),
+    "ov_nodes": ("장치(노드)별 상태", "Status of each device (node)"),
+    "ov_todo": ("먼저 확인할 것", "Check these first"),
+    "ov_todo_hint": ("중요한 순서대로 정리했습니다. 같은 문제가 여러 번 나온 경우 한 번만 보여줍니다.",
+                     "Most important first. Repeated identical problems are shown once."),
+    "ov_info": ("참고 정보", "For your information"),
+    "ov_none": ("확인할 문제가 없습니다. 모든 장치가 정상적으로 통신했습니다.",
+                "Nothing to check. Every device communicated normally."),
+    "what": ("무슨 일이 있었나요?", "What happened?"),
+    "why": ("왜 중요한가요?", "Why does it matter?"),
+    "steps": ("이렇게 확인해 보세요", "How to check"),
+    "times": ("{}번 발생 ({:.2f}초 ~ {:.2f}초)", "{} times ({:.2f} s – {:.2f} s)"),
+    "time_once": ("{:.2f}초", "at {:.2f} s"),
+    "show_frame": ("이 시점의 메시지 보기", "Show the messages"),
+    "show_timeline": ("타임라인에서 보기", "Show on timeline"),
+    "occurrences": ("발생한 곳", "Occurrences"),
+    "more_occ": ("외 {}건", "and {} more"),
+    "plain": ("쉽게 말하면", "In plain words"),
+    "raw_cols": ("원본 데이터 보기 (COB-ID, 바이트)", "Show raw data (COB-ID, bytes)"),
+    "export": ("결과 저장", "Save results"),
+    "export_txt": ("읽기 쉬운 보고서 (.txt)", "Readable report (.txt)"),
+    "export_json": ("진단 결과 JSON (.json)", "Findings as JSON (.json)"),
+    "export_csv": ("해석한 전체 메시지 표 (.csv, 엑셀)", "All decoded messages (.csv, Excel)"),
+    "export_done": ("저장했습니다: {}", "Saved: {}"),
+    "glossary": ("용어 설명", "Glossary"),
+    "close": ("닫기", "Close"),
+    "glossary_title": ("CANopen 용어를 쉽게 설명합니다", "CANopen terms in plain words"),
+    "help": ("사용 방법", "How to use"),
+    "help_html": (
+        "<h3>CANopen Lens 사용 방법</h3>"
+        "<p><b>1. 로그 저장하기</b><br>리눅스나 라즈베리파이에서 <code>candump -l can0</code>을 실행하고, 문제가 생기는 동작을 한 뒤 Ctrl+C로 멈춥니다. "
+        "<code>candump-날짜.log</code> 파일이 생깁니다.</p>"
+        "<p><b>2. 열기</b><br>파일을 창에 끌어다 놓거나 <b>로그 열기</b>를 누릅니다.</p>"
+        "<p><b>3. 요약부터 보기</b><br><b>요약</b> 화면에 전체 판정, 장치별 상태, 먼저 확인할 문제가 나옵니다. "
+        "각 문제에는 무슨 일이 있었는지, 왜 중요한지, 무엇을 확인하면 되는지가 적혀 있습니다.</p>"
+        "<p><b>4. 자세히 보기</b><br><b>이 시점의 메시지 보기</b>를 누르면 그 순간 주고받은 메시지가 한 줄씩 쉬운 말로 풀려 있습니다. "
+        "<b>상태 타임라인</b>에서는 각 장치와 모터 축의 상태가 시간에 따라 어떻게 바뀌었는지 색으로 볼 수 있습니다.</p>"
+        "<p><b>5. 더 정확하게</b><br>장치 제조사의 EDS 파일이 있으면 <b>노드</b> 탭에서 지정하세요. 값의 이름과 단위가 정확해집니다.</p>"
+        "<p>모르는 용어는 <b>용어 설명</b> 버튼을 누르면 볼 수 있습니다.</p>",
+        "<h3>How to use CANopen Lens</h3>"
+        "<p><b>1. Record a log</b><br>On Linux or a Raspberry Pi run <code>candump -l can0</code>, reproduce the problem, then stop with Ctrl+C. "
+        "A <code>candump-DATE.log</code> file is created.</p>"
+        "<p><b>2. Open it</b><br>Drop the file on the window or click <b>Open log</b>.</p>"
+        "<p><b>3. Start with the overview</b><br>The <b>Overview</b> shows the verdict, the status of each device and the problems to check first, "
+        "each with what happened, why it matters and what to check.</p>"
+        "<p><b>4. Dig deeper</b><br><b>Show the messages</b> jumps to the messages around a problem, each explained in plain words. "
+        "The <b>State timeline</b> shows how each device and motor axis changed state over time.</p>"
+        "<p><b>5. Be more precise</b><br>If you have the vendor's EDS file, assign it in the <b>Nodes</b> tab for exact names and units.</p>"
+        "<p>Unknown words are explained under <b>Glossary</b>.</p>"),
+    "welcome_steps": (
+        "① 장비에서 <code>candump -l can0</code>으로 로그를 저장하세요 &nbsp;→&nbsp; ② 파일을 여기에 놓으세요 &nbsp;→&nbsp; ③ 요약 화면에서 문제와 해결 방법을 확인하세요",
+        "① Record with <code>candump -l can0</code> &nbsp;→&nbsp; ② drop the file here &nbsp;→&nbsp; ③ read the overview for problems and fixes"),
+    "chip_pdo": ("실시간 데이터", "Process data"),
+    "chip_sdo": ("설정 읽기·쓰기", "Settings"),
+    "chip_emcy": ("비상 알림", "Emergency"),
+    "chip_nmt": ("상태 명령", "Commands"),
+    "chip_hb": ("생존 신호", "Heartbeat"),
+    "chip_sync": ("동기 신호", "Sync"),
+    "chip_etc": ("기타", "Other"),
+    "errors_kinds": ("오류 항목", "Errors"),
+    "warnings_kinds": ("경고 항목", "Warnings"),
+    "frame_findings": ("이 메시지에서 발견된 문제", "Problems found in this message"),
+
     "open": ("로그 열기", "Open log"),
     "open_sample": ("예제 로그 열어보기", "Try the sample log"),
     "drop_title": ("candump 로그 파일을 여기에 끌어다 놓으세요", "Drop a candump log file here"),

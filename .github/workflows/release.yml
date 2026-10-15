@@ -1,8 +1,12 @@
 name: Release
 
-# Builds wheels for Linux x86_64 / aarch64 and Windows x64, then publishes to PyPI
-# when a tag like v0.1.0 is pushed. Publishing uses PyPI "trusted publishing",
-# so no API token is stored in the repository (see README / RELEASING.md).
+# On a tag like v0.3.0 this builds
+#   * Python wheels (Linux x86_64 / aarch64, Windows x64) + sdist  -> PyPI
+#   * a standalone app that needs no Python at all (Windows, Linux x86_64, Linux aarch64)
+#                                                                   -> GitHub Release
+# PyPI publishing uses "trusted publishing", so no token is stored in the repository
+# (see RELEASING.md). "Run workflow" without a tag only builds and keeps the files
+# as workflow artifacts.
 
 on:
   push:
@@ -45,8 +49,47 @@ jobs:
           name: sdist
           path: dist/*.tar.gz
 
-  publish:
-    needs: [wheels, sdist]
+  app:
+    name: app (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64 }
+          # 22.04 so the app also runs on older distributions (glibc 2.35+)
+          - { os: ubuntu-22.04, name: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, name: linux-aarch64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libxcb-cursor0
+      - run: python -m pip install ".[gui]" pyinstaller
+      - run: pyinstaller packaging/canopen-lens.spec --noconfirm
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process dist/CANopenLens/CANopenLens.exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "self-test failed: $($p.ExitCode)" }
+          Compress-Archive -Path dist/CANopenLens -DestinationPath CANopenLens-${{ github.ref_name }}-${{ matrix.name }}.zip
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          QT_QPA_PLATFORM=offscreen dist/CANopenLens/CANopenLens --self-test
+          tar -C dist -czf CANopenLens-${{ github.ref_name }}-${{ matrix.name }}.tar.gz CANopenLens
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.name }}
+          path: CANopenLens-*
+
+  publish-pypi:
+    needs: [wheels, sdist, app]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment: pypi
@@ -55,6 +98,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: wheels-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [wheels, sdist, app]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

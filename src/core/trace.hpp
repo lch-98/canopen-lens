@@ -1,21 +1,16 @@
-// A loaded log: raw frames plus everything derived from them.
+// A loaded log (Trace) and a live decoder fed one frame at a time (LiveDecoder).
 #pragma once
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "analyzer.hpp"
 #include "parser.hpp"
 #include "types.hpp"
 
 namespace col {
-
-struct Options {
-    double sdo_timeout = 1.0;       // s without an SDO answer before it counts as lost
-    double state_timeout = 1.0;     // s a CiA 402 command may take to take effect
-    double hb_gap_factor = 2.5;     // gap > factor * normal period => warning
-    bool auto_detect_drives = true; // treat nodes as CiA 402 when the log shows it
-};
 
 class Trace {
 public:
@@ -40,13 +35,13 @@ public:
     size_t size() const { return parsed_.frames.size(); }
     const Frame& frame(size_t i) const { return parsed_.frames.at(i); }
     const Record& record(size_t i) const { return records_.at(i); }
-    const std::vector<Issue>& issues() const { return issues_; }
+    const std::vector<Issue>& issues() const { return res_.issues; }
     std::vector<NodeInfo> nodes() const;
     const std::vector<StatePoint>& axis_timeline(uint8_t node, uint8_t axis = 0) const;
     std::vector<AxisWord> axis_words(size_t row) const;
-    uint8_t axis_count(uint8_t node) const { return node < node_info_.size() ? node_info_[node].axis_count : 0; }
-    const PdoMapping& mapping(uint32_t ref) const { return mappings_.at(ref); }
-    size_t mapping_count() const { return mappings_.size(); }
+    uint8_t axis_count(uint8_t node) const { return node < res_.node_info.size() ? res_.node_info[node].axis_count : 0; }
+    const PdoMapping& mapping(uint32_t ref) const { return res_.mappings.at(ref); }
+    size_t mapping_count() const { return res_.mappings.size(); }
     std::vector<PdoField> pdo_fields(size_t row) const;
     const std::vector<std::string>& interfaces() const { return parsed_.interfaces; }
     double duration() const { return parsed_.frames.empty() ? 0.0 : parsed_.frames.back().t; }
@@ -61,23 +56,59 @@ public:
     std::vector<uint32_t> filter(uint32_t kind_mask, int node, bool issues_only, int index) const;
 
 private:
-    struct NodeState;
-    void detect_drives(std::vector<bool>& drive) const;
-    uint32_t push_mapping(PdoMapping m);
-
     Options opt_;
     ParseResult parsed_;
     std::vector<Record> records_;
-    std::vector<Issue> issues_;
-    std::vector<NodeInfo> node_info_;          // indexed by node-ID (0..127)
-    std::vector<std::vector<StatePoint>> timelines_;   // index: node * kMaxAxes + axis
     std::vector<AxisWord> words_;
-    std::vector<PdoMapping> mappings_;
+    Results res_;
     std::map<uint8_t, bool> drive_override_;
-    std::map<uint32_t, std::vector<PdoMapEntry>> base_mappings_;  // key: node<<8 | tx<<4 | num
+    BaseMappings base_mappings_;
 };
 
-AxisState decode_statusword(uint16_t sw);
-CwCommand decode_controlword(uint16_t cw, uint16_t previous);
+// Decodes frames as they arrive from a live bus. Only the newest frame is kept,
+// so memory stays constant however long it runs; findings accumulate in issues().
+class LiveDecoder {
+public:
+    explicit LiveDecoder(const Options& opt = {});
+
+    void set_drive(uint8_t node, bool is_drive);
+    void set_base_mapping(uint8_t node, bool tx, uint8_t num, const std::vector<PdoMapEntry>& entries);
+    // Forgets all state (keeps drive overrides and base mappings).
+    void reset();
+
+    // `t` is an absolute time in seconds (e.g. python-can's msg.timestamp).
+    // Returns the number of findings added by this frame (and the time-based
+    // checks it triggered); they are the last entries of issues().
+    size_t feed(double t, uint32_t id, const uint8_t* data, size_t len, bool ext, bool rtr, bool error, bool fd);
+    // Time-based checks while the bus is silent. Returns the number of new findings.
+    size_t tick(double t);
+
+    const Frame& last_frame() const { return frame_; }
+    const Record& last_record() const { return record_; }
+    const std::vector<AxisWord>& last_words() const { return words_; }
+    std::vector<PdoField> last_pdo_fields() const;
+    uint64_t frame_count() const { return count_; }
+
+    const std::vector<Issue>& issues() const { return res_.issues; }
+    std::vector<NodeInfo> nodes();
+    const std::vector<StatePoint>& axis_timeline(uint8_t node, uint8_t axis = 0) const;
+    uint8_t axis_count(uint8_t node) const { return node < res_.node_info.size() ? res_.node_info[node].axis_count : 0; }
+    const PdoMapping& mapping(uint32_t ref) const { return res_.mappings.at(ref); }
+    double t0() const { return t0_; }
+    Options& options() { return opt_; }
+
+private:
+    Options opt_;
+    std::map<uint8_t, bool> drive_override_;
+    BaseMappings base_mappings_;
+    Results res_;
+    std::unique_ptr<Analyzer> analyzer_;
+    Frame frame_;
+    Record record_;
+    std::vector<AxisWord> words_;
+    uint64_t count_ = 0;
+    double t0_ = 0.0;
+    bool started_ = false;
+};
 
 }  // namespace col

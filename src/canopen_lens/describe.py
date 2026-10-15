@@ -351,7 +351,7 @@ def who(log: "CanopenLog", node: int, axis: int, lang: str) -> str:
 
 def _axis_prefix(log: "CanopenLog", node: int, axis: int, lang: str) -> str:
     if log.trace.axis_count(node) > 1:
-        return _p(lang, f"축{axis + 1} ", f"axis{axis + 1} ")
+        return _p(lang, f"축 {axis + 1} ", f"Axis {axis + 1} ")
     return ""
 
 
@@ -552,76 +552,8 @@ def severity_text(sev: Severity, lang: str) -> str:
 
 
 def issue_text(log: "CanopenLog", issue, lang: str = "ko") -> tuple[str, str]:
-    """(one-line title, explanation with what to check)"""
-    n = issue.node
-    T = issue.type
-    if T == IssueType.SDO_ABORT:
-        desc, hint = sdo_abort_text(issue.code, lang)
-        obj = _obj(log, n, issue.index, issue.sub, lang)
-        return (_p(lang, f"노드 {n}: SDO 실패 – {desc}", f"Node {n}: SDO failed – {desc}"),
-                _p(lang, f"{obj} 접근이 중단되었습니다 (코드 0x{issue.code:08X}). {hint}",
-                   f"Access to {obj} was aborted (code 0x{issue.code:08X}). {hint}"))
-    if T == IssueType.SDO_NO_RESPONSE:
-        obj = _obj(log, n, issue.index, issue.sub, lang)
-        what = _p(lang, "읽기", "read") if issue.code else _p(lang, "쓰기", "write")
-        return (_p(lang, f"노드 {n}: SDO 응답 없음", f"Node {n}: no SDO response"),
-                _p(lang, f"{obj} {what} 요청에 {issue.value:g}초 안에 응답이 없었습니다. 노드-ID가 맞는지, 노드 전원과 배선, NMT 상태(Stopped면 SDO에 응답하지 않음)를 확인하세요.",
-                   f"The {what} of {obj} got no answer within {issue.value:g} s. Check the node-ID, power, wiring and NMT state (a Stopped node does not answer SDO)."))
-    if T == IssueType.EMCY:
-        reg = error_register_text(issue.index, lang)
-        return (_p(lang, f"노드 {n}: EMCY 0x{issue.code:04X} {emcy_text(issue.code, lang)}",
-                   f"Node {n}: EMCY 0x{issue.code:04X} {emcy_text(issue.code, lang)}"),
-                _p(lang, f"노드가 비상 메시지를 보냈습니다. 에러 레지스터: {reg}. 정확한 원인은 장치 매뉴얼의 에러 코드표에서 0x{issue.code:04X}를 찾아보세요. 드라이브라면 0x603F(에러 코드)도 함께 확인하세요.",
-                   f"The node reported an emergency. Error register: {reg}. Look up 0x{issue.code:04X} in the device manual; for drives also read 0x603F."))
-    if T == IssueType.EMCY_RESET:
-        return (_p(lang, f"노드 {n}: 오류 해제 알림", f"Node {n}: error reset"),
-                _p(lang, "노드가 이전 오류가 해제되었다고 알렸습니다 (EMCY 0x0000).", "The node reports that previous errors are cleared (EMCY 0x0000)."))
-    if T == IssueType.HEARTBEAT_GAP:
-        return (_p(lang, f"노드 {n}: 하트비트가 {issue.value:.3f}초 끊김", f"Node {n}: heartbeat gap of {issue.value:.3f} s"),
-                _p(lang, f"평소에는 {issue.expected * 1000:.0f} ms마다 오던 하트비트가 {issue.value:.3f}초 동안 오지 않았습니다. 순간적인 통신 단절, 버스 과부하, 노드 CPU 과부하를 의심할 수 있습니다. 같은 시점의 에러 프레임과 다른 노드 상태를 함께 보세요.",
-                   f"Normally every {issue.expected * 1000:.0f} ms, but nothing arrived for {issue.value:.3f} s. Suspect a short disconnect, bus overload or node CPU overload."))
-    if T == IssueType.HEARTBEAT_LOST:
-        return (_p(lang, f"노드 {n}: 하트비트 끊김 (응답 없음)", f"Node {n}: heartbeat lost"),
-                _p(lang, f"마지막 하트비트 이후 로그 끝까지 {issue.value:.2f}초 동안 아무 하트비트가 없습니다 (평소 주기 {issue.expected * 1000:.0f} ms). 노드 전원, 커넥터, 노드 리셋 여부를 확인하세요.",
-                   f"No heartbeat for {issue.value:.2f} s until the end of the log (normal period {issue.expected * 1000:.0f} ms). Check power, connectors and whether the node reset."))
-    if T == IssueType.NODE_REBOOT:
-        if issue.code:
-            return (_p(lang, f"노드 {n}: 리셋 후 재부팅", f"Node {n}: rebooted after reset command"),
-                    _p(lang, "NMT 리셋 명령 뒤의 정상적인 재부팅입니다.", "Normal reboot after an NMT reset command."))
-        return (_p(lang, f"노드 {n}: 예상치 못한 재부팅", f"Node {n}: unexpected reboot"),
-                _p(lang, "리셋 명령이 없었는데 노드가 Boot-up 메시지를 다시 보냈습니다. 전원 순간 저하(브라운아웃), 워치독 리셋, 펌웨어 크래시를 의심하세요.",
-                   "The node sent boot-up again without a reset command. Suspect a brown-out, watchdog reset or firmware crash."))
-    off = 0x800 * issue.axis
-    cw_idx, err_idx = 0x6040 + off, 0x603F + off
-    if T == IssueType.AXIS_FAULT:
-        extra = ""
-        if issue.related_row is not None:
-            r = log.trace.record(issue.related_row)
-            extra = _p(lang, f" 같은 시점에 보고된 EMCY 0x{r.emcy_code:04X}({emcy_text(r.emcy_code, lang)})가 원인일 가능성이 큽니다.",
-                       f" The EMCY 0x{r.emcy_code:04X} ({emcy_text(r.emcy_code, lang)}) reported at the same time is the likely cause.")
-        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 드라이브 폴트 발생", f"{who(log, n, issue.axis, lang)}: drive entered Fault"),
-                _p(lang, f"스테이터스워드 0x{issue.code:04X}에서 Fault 비트가 켜졌습니다.{extra} 원인을 해결한 뒤 컨트롤워드(0x{cw_idx:04X}) bit 7(Fault reset)을 0→1로 올려야 해제됩니다. 드라이브 에러 코드는 0x{err_idx:04X}에서 읽을 수 있습니다.",
-                   f"Statusword 0x{issue.code:04X} shows Fault.{extra} Fix the cause, then raise bit 7 (fault reset) of the controlword (0x{cw_idx:04X}) from 0 to 1. The drive error code is in 0x{err_idx:04X}."))
-    if T == IssueType.AXIS_QUICK_STOP:
-        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 급정지 동작", f"{who(log, n, issue.axis, lang)}: quick stop active"),
-                _p(lang, "드라이브가 Quick stop 상태로 들어갔습니다. 마스터가 Quick stop 명령(컨트롤워드 bit 2 = 0)을 보냈는지 확인하세요.",
-                   "The drive is in quick stop. Check whether the master sent quick stop (controlword bit 2 = 0)."))
-    if T == IssueType.AXIS_ENABLE_FAILED:
-        code = issue.code if issue.code < 0x80 else -1
-        state = axis_state_text(AxisState(code), lang)
-        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 운전 허가(Enable)가 적용되지 않음", f"{who(log, n, issue.axis, lang)}: enable operation did not take effect"),
-                _p(lang, f"Enable operation 명령 후 {issue.value:g}초가 지나도 Operation enabled가 되지 않았습니다 (현재: {state}). CiA 402는 컨트롤워드(0x{cw_idx:04X})에 Shutdown(0x06) → Switch on(0x07) → Enable operation(0x0F) 순서로 보내야 하며, 드라이브가 Fault 상태면 먼저 Fault reset이 필요합니다. 주전원(모터 전원) 인가 여부도 확인하세요.",
-                   f"Operation enabled was not reached {issue.value:g} s after the command (now: {state}). CiA 402 needs Shutdown (0x06) → Switch on (0x07) → Enable operation (0x0F) on the controlword (0x{cw_idx:04X}); a faulted drive needs a fault reset first. Also check motor power."))
-    if T == IssueType.AXIS_FAULT_RESET_FAILED:
-        return (_p(lang, f"{who(log, n, issue.axis, lang)}: 폴트 리셋 실패", f"{who(log, n, issue.axis, lang)}: fault reset failed"),
-                _p(lang, f"Fault reset 후 {issue.value:g}초가 지나도 폴트가 풀리지 않았습니다. 오류 원인이 아직 남아 있습니다 (예: 과전류, 엔코더 오류, 비상정지 입력). EMCY와 0x{err_idx:04X} 값을 확인하세요.",
-                   f"The fault is still present {issue.value:g} s after the reset. The cause is still active (e.g. over current, encoder fault, e-stop input). Check EMCY and 0x{err_idx:04X}."))
-    if T == IssueType.BUS_ERROR_FRAME:
-        return (_p(lang, "CAN 버스 에러 프레임", "CAN bus error frames"),
-                _p(lang, "CAN 드라이버가 버스 오류를 보고했습니다. 종단저항(양 끝 120Ω), 통신 속도 일치, 배선 길이, GND 연결을 확인하세요.",
-                   "The CAN driver reported bus errors. Check termination (120 Ω at both ends), bit rate, cable length and ground."))
-    if T == IssueType.PARSE_ERRORS:
-        return (_p(lang, f"해석하지 못한 줄 {issue.code}개", f"{issue.code} lines could not be parsed"),
-                _p(lang, f"candump 형식이 아닌 줄을 건너뛰었습니다 (첫 번째: {int(issue.value)}번째 줄). 로그 형식을 확인하세요.",
-                   f"Skipped lines that are not candump output (first: line {int(issue.value)})."))
-    return (str(T), "")
+    """(one-line title, explanation). See explain.explain_issue for the structured form."""
+    from .explain import explain_issue
+
+    ex = explain_issue(log, issue, lang)
+    return ex.title, ex.as_text(lang)

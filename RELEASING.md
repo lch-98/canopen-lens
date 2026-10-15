@@ -27,17 +27,27 @@ PyPI 업로드는 GitHub Actions가 대신 합니다. API 토큰을 저장소에
 1. `pyproject.toml` 의 `version` 과 `src/canopen_lens/__init__.py` 의 `__version__` 을 같은 값으로 올립니다.
 2. 커밋 후 태그를 push 합니다.
    ```bash
-   git tag v0.1.0
-   git push origin v0.1.0
+   git tag v0.3.0
+   git push origin v0.3.0
    ```
-3. GitHub → **Actions → Release** 가 Linux x86_64 / aarch64, Windows x64 휠을 빌드하고 PyPI에 올립니다.
+3. GitHub → **Actions → Release** 가 자동으로 다음을 합니다.
+   - Linux x86_64 / aarch64, Windows x64용 **휠**을 빌드해 PyPI에 올림 → `pip install canopen-lens`가 컴파일 없이 설치됨
+   - Python 없이 실행되는 **앱**(Windows `.zip`, Linux x86_64·aarch64 `.tar.gz`)을 PyInstaller로 만들고, 실행 자체 테스트(`--self-test`)를 통과한 것만 GitHub Release에 첨부
 
 태그 없이 빌드만 확인하고 싶으면 **Actions → Release → Run workflow** 를 누르면 됩니다 (업로드는 하지 않음).
+
+## 앱을 직접 만들어 보기
+
+```bash
+pip install ".[gui]" pyinstaller        # -e (편집 모드) 설치로는 C++ 모듈이 포함되지 않음
+pyinstaller packaging/canopen-lens.spec --noconfirm
+dist/CANopenLens/CANopenLens --self-test
+```
 
 ## 로컬 확인
 
 ```bash
-pip install -e ".[gui,test]"
+pip install -e ".[gui,test,pandas,live]"
 pytest
 python -m build          # dist/ 에 sdist 와 현재 플랫폼용 휠 생성
 ```

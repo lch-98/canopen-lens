@@ -9,6 +9,7 @@ find_package(pybind11 CONFIG REQUIRED)
 
 pybind11_add_module(_core
     src/core/parser.cpp
+    src/core/analyzer.cpp
     src/core/trace.cpp
     src/core/bindings.cpp)
 target_include_directories(_core PRIVATE src/core)

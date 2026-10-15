@@ -179,6 +179,7 @@ struct Issue {
     double value = 0.0;        // e.g. gap length in seconds
     double expected = 0.0;     // e.g. normal heartbeat period
     int64_t related_row = -1;  // e.g. the EMCY frame that explains a fault
+    uint32_t related_code = 0; // e.g. that EMCY's error code
 };
 
 struct PdoMapEntry {

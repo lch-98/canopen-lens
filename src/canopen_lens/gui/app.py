@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -39,10 +40,15 @@ from PySide6.QtWidgets import (
 
 from .. import __version__, describe
 from .._core import Kind, Severity
+from ..explain import GLOSSARY
 from ..log import CanopenLog
+from .dialogs import glossary_dialog, help_dialog
 from .i18n import Tr
 from .models import KIND_COLORS, FrameTableModel
+from .overview import OverviewPage
 from .timeline import TimelineWidget
+
+OVERVIEW_TAB, FRAMES_TAB, TIMELINE_TAB = 0, 1, 2
 
 SAMPLE_LOG = Path(__file__).resolve().parent.parent / "examples" / "sample_cia402.log"
 
@@ -52,14 +58,15 @@ SEV_STYLE = {
     Severity.INFO: ("ℹ", "#2563eb"),
 }
 
+# (label key, kinds, glossary term used as tooltip)
 FILTER_KINDS = [
-    ("PDO", [Kind.TPDO, Kind.RPDO]),
-    ("SDO", [Kind.SDO_REQ, Kind.SDO_RESP]),
-    ("EMCY", [Kind.EMCY]),
-    ("NMT", [Kind.NMT]),
-    ("HB", [Kind.HEARTBEAT]),
-    ("SYNC", [Kind.SYNC, Kind.TIME]),
-    ("ETC", [Kind.LSS, Kind.ERROR_FRAME, Kind.UNKNOWN]),
+    ("chip_pdo", [Kind.TPDO, Kind.RPDO], "PDO (TPDO / RPDO)"),
+    ("chip_sdo", [Kind.SDO_REQ, Kind.SDO_RESP], "SDO"),
+    ("chip_emcy", [Kind.EMCY], "EMCY"),
+    ("chip_nmt", [Kind.NMT], "NMT"),
+    ("chip_hb", [Kind.HEARTBEAT], "하트비트 (Heartbeat)"),
+    ("chip_sync", [Kind.SYNC, Kind.TIME], "SYNC"),
+    ("chip_etc", [Kind.LSS, Kind.ERROR_FRAME, Kind.UNKNOWN], "에러 프레임"),
 ]
 
 
@@ -246,9 +253,25 @@ class MainWindow(QMainWindow):
         self.act_sample = QAction(self)
         self.act_sample.triggered.connect(lambda: self.load(str(SAMPLE_LOG)))
         tb.addAction(self.act_sample)
+        self.btn_export = QToolButton()
+        self.btn_export.setPopupMode(QToolButton.InstantPopup)
+        self.export_menu = QMenu(self)
+        self.act_export_txt = self.export_menu.addAction("", lambda: self.export("txt"))
+        self.act_export_json = self.export_menu.addAction("", lambda: self.export("json"))
+        self.act_export_csv = self.export_menu.addAction("", lambda: self.export("csv"))
+        self.btn_export.setMenu(self.export_menu)
+        self.btn_export.setEnabled(False)
+        tb.addWidget(self.btn_export)
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         tb.addWidget(spacer)
+        self.act_glossary = QAction(self)
+        self.act_glossary.triggered.connect(lambda: glossary_dialog(self.tr_, self).exec())
+        tb.addAction(self.act_glossary)
+        self.act_help = QAction(self)
+        self.act_help.setShortcut(QKeySequence.HelpContents)
+        self.act_help.triggered.connect(lambda: help_dialog(self.tr_, self).exec())
+        tb.addAction(self.act_help)
         self.act_lang = QAction(self)
         self.act_lang.triggered.connect(self.toggle_language)
         tb.addAction(self.act_lang)
@@ -286,6 +309,13 @@ class MainWindow(QMainWindow):
         btns.addStretch(1)
         dl.addSpacing(18)
         dl.addLayout(btns)
+        self.welcome_steps = QLabel()
+        self.welcome_steps.setTextFormat(Qt.RichText)
+        self.welcome_steps.setAlignment(Qt.AlignCenter)
+        self.welcome_steps.setWordWrap(True)
+        self.welcome_steps.setStyleSheet("color:#334155; background:#eff6ff; border-radius:8px; padding:10px; margin:0 60px;")
+        dl.addSpacing(22)
+        dl.addWidget(self.welcome_steps)
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignCenter)
         dl.addSpacing(10)
@@ -327,16 +357,23 @@ class MainWindow(QMainWindow):
         self.left_tabs.addTab(self.node_scroll, "")
         split.addWidget(self.left_tabs)
 
-        # center: frames + timeline
+        # center: overview + frames + timeline
         self.center_tabs = QTabWidget()
+        self.overview = OverviewPage(self.tr_)
+        self.overview.showRow.connect(self.goto_row)
+        self.overview.showTimeline.connect(lambda: self.center_tabs.setCurrentIndex(TIMELINE_TAB))
+        self.center_tabs.addTab(self.overview, "")
         frames_page = QWidget()
         fl = QVBoxLayout(frames_page)
         fl.setContentsMargins(0, 4, 0, 0)
         bar = QHBoxLayout()
         self.kind_buttons: list[tuple[QToolButton, list]] = []
-        for label, kinds in FILTER_KINDS:
+        glossary = {term: (ko, en) for term, ko, en in GLOSSARY}
+        for key, kinds, term in FILTER_KINDS:
             b = QToolButton()
-            b.setText(label)
+            b.setProperty("i18n", key)
+            b.setProperty("help", glossary.get(term))
+            b.setProperty("term", term)
             b.setCheckable(True)
             b.setChecked(True)
             color = KIND_COLORS[kinds[0]]
@@ -361,6 +398,9 @@ class MainWindow(QMainWindow):
         self.issues_only = QCheckBox()
         self.issues_only.toggled.connect(self.apply_filter)
         bar.addWidget(self.issues_only)
+        self.raw_box = QCheckBox()
+        self.raw_box.toggled.connect(self._show_raw)
+        bar.addWidget(self.raw_box)
         bar.addStretch(1)
         self.count_label = QLabel()
         self.count_label.setStyleSheet("color:#64748b;")
@@ -385,6 +425,7 @@ class MainWindow(QMainWindow):
         hh.setStretchLastSection(True)
         hh.setSectionResizeMode(QHeaderView.Interactive)
         self.table.selectionModel().currentRowChanged.connect(self._frame_selected)
+        self._show_raw(False)
         fl.addWidget(self.table, 1)
         self.center_tabs.addTab(frames_page, "")
 
@@ -420,7 +461,8 @@ class MainWindow(QMainWindow):
         rl.addWidget(self.detail, 1)
         split.addWidget(right)
 
-        split.setSizes([320, 780, 340])
+        right.setMinimumWidth(380)
+        split.setSizes([300, 700, 440])
         split.setStretchFactor(1, 1)
         self.stack.addWidget(page)
 
@@ -437,12 +479,27 @@ class MainWindow(QMainWindow):
         self.btn_sample.setText(tr("open_sample"))
         self.left_tabs.setTabText(0, tr("tab_issues"))
         self.left_tabs.setTabText(1, tr("tab_nodes"))
-        self.center_tabs.setTabText(0, tr("tab_frames"))
-        self.center_tabs.setTabText(1, tr("tab_timeline"))
+        self.center_tabs.setTabText(OVERVIEW_TAB, tr("tab_overview"))
+        self.center_tabs.setTabText(FRAMES_TAB, tr("tab_frames"))
+        self.center_tabs.setTabText(TIMELINE_TAB, tr("tab_timeline"))
+        self.welcome_steps.setText(tr("welcome_steps"))
+        self.btn_export.setText(tr("export"))
+        self.act_export_txt.setText(tr("export_txt"))
+        self.act_export_json.setText(tr("export_json"))
+        self.act_export_csv.setText(tr("export_csv"))
+        self.act_glossary.setText(tr("glossary"))
+        self.act_help.setText(tr("help"))
+        self.raw_box.setText(tr("raw_cols"))
+        for b, _ in self.kind_buttons:
+            b.setText(tr(b.property("i18n")))
+            help_text = b.property("help")
+            term = b.property("term") or ""
+            if help_text:
+                b.setToolTip(f"<b>{term}</b><br>" + (help_text[0] if tr.lang == "ko" else help_text[1]))
         self.index_edit.setPlaceholderText(tr("filter_index"))
         self.issues_only.setText(tr("filter_issues"))
-        self.card_err.caption.setText(tr("errors"))
-        self.card_warn.caption.setText(tr("warnings"))
+        self.card_err.caption.setText(tr("errors_kinds"))
+        self.card_warn.caption.setText(tr("warnings_kinds"))
         self.card_nodes.caption.setText(tr("nodes"))
         self.timeline_hint.setText(tr("timeline_hint"))
         self.detail_title.setText(tr("details"))
@@ -510,13 +567,9 @@ class MainWindow(QMainWindow):
         self.path = path
         self.stack.setCurrentIndex(1)
         self._retranslate()
+        self.btn_export.setEnabled(True)
         self.refresh_all()
-        # start on the first real problem if there is one
-        for k in range(self.issue_list.count()):
-            item = self.issue_list.item(k)
-            if item.data(Qt.UserRole + 1) != int(Severity.INFO):
-                self.issue_list.setCurrentRow(k)
-                break
+        self.center_tabs.setCurrentIndex(OVERVIEW_TAB)
 
     # ------------------------------------------------------------------ refresh
     def refresh_all(self, keep_selection: bool = False):
@@ -528,9 +581,9 @@ class MainWindow(QMainWindow):
         self.file_label.setText(
             f"<b>{name}</b><br><span style='color:#64748b'>{len(log):,} {tr('frames')} · "
             f"{tr('duration')} {log.trace.duration:.3f} s · {fmt} · {', '.join(log.trace.interfaces)}</span>")
-        counts = log.count_issues()
-        self.card_err.value.setText(str(counts[Severity.ERROR]))
-        self.card_warn.value.setText(str(counts[Severity.WARNING]))
+        groups = log.grouped_issues()
+        self.card_err.value.setText(str(sum(1 for g in groups if g.severity == Severity.ERROR)))
+        self.card_warn.value.setText(str(sum(1 for g in groups if g.severity == Severity.WARNING)))
         self.card_nodes.value.setText(str(len(log.nodes)))
 
         self.node_combo.blockSignals(True)
@@ -548,25 +601,30 @@ class MainWindow(QMainWindow):
         self.model.set_log(log, None)
         self.apply_filter()
         self.timeline.set_log(log)
+        tab = self.center_tabs.currentIndex()
+        self.overview.set_log(log)
         if current is not None:
             self.goto_row(current)
+            self.center_tabs.setCurrentIndex(tab)
 
     def _fill_issues(self):
         self.issue_list.blockSignals(True)
         self.issue_list.clear()
         lang = self.tr_.lang
-        issues = sorted(self.log.issues, key=lambda i: (-int(i.severity), i.t))
-        if not issues:
+        groups = self.log.grouped_issues()
+        if not groups:
             item = QListWidgetItem(self.tr_("no_issues"))
             item.setFlags(Qt.NoItemFlags)
             self.issue_list.addItem(item)
-        for issue in issues:
-            title, _ = self.log.issue_text(issue, lang)
-            icon, color = SEV_STYLE[issue.severity]
-            item = QListWidgetItem(f"{icon}  {title}\n      {issue.t:.3f} s")
-            item.setForeground(QColor(color) if issue.severity == Severity.ERROR else self.palette().text().color())
-            item.setData(Qt.UserRole, issue)
-            item.setData(Qt.UserRole + 1, int(issue.severity))
+        for g in groups:
+            title = self.log.explain(g.first, lang).title
+            icon, color = SEV_STYLE[g.severity]
+            when = (self.tr_("times").format(g.count, g.t_first, g.t_last) if g.count > 1
+                    else self.tr_("time_once").format(g.t_first))
+            item = QListWidgetItem(f"{icon}  {title}\n      {when}")
+            item.setForeground(QColor(color) if g.severity == Severity.ERROR else self.palette().text().color())
+            item.setData(Qt.UserRole, g)
+            item.setData(Qt.UserRole + 1, int(g.severity))
             self.issue_list.addItem(item)
         self.issue_list.blockSignals(False)
 
@@ -634,7 +692,7 @@ class MainWindow(QMainWindow):
             vr = self.model.view_row_of(frame_row)
         if vr is None:
             return
-        self.center_tabs.setCurrentIndex(0)
+        self.center_tabs.setCurrentIndex(FRAMES_TAB)
         self.table.selectRow(vr)
         self.table.scrollTo(self.model.index(vr, 0), QAbstractItemView.PositionAtCenter)
         self.table.setFocus()
@@ -647,37 +705,82 @@ class MainWindow(QMainWindow):
         tr = self.tr_
         lang = tr.lang
         rows = self.log.details(row, lang)
-        self.detail_title.setText(f"#{row + 1} · {self.log.summary(row, lang)[:60]}")
-        html = ["<table cellspacing='0' cellpadding='4' width='100%'>"]
+        rec = self.log.trace.record(row)
+        self.detail_title.setText(f"#{row + 1} · {describe.kind_label(rec.kind, lang)}")
+        html = [f"<div style='background:#eff6ff; padding:8px; border-radius:6px'>"
+                f"<b>{_esc(tr('plain'))}</b><br>{_esc(self.log.summary(row, lang))}<br>"
+                f"<span style='color:#475569'>{_esc(describe.kind_help(rec.kind, lang))}</span></div>"]
+        related = [i for i in self.log.issues if i.row == row]
+        if related:
+            html.append(f"<h4>{_esc(tr('frame_findings'))}</h4>")
+            for issue in related:
+                html.append(self._explanation_html(issue))
+        html.append("<table cellspacing='0' cellpadding='4' width='100%'>")
+        skip = {_k for _k in (describe._p(lang, "해석", "Meaning"), describe._p(lang, "설명", "What it is"))}
         for k, v in rows:
+            if k in skip:
+                continue
             html.append(f"<tr><td valign='top' width='38%' style='color:#64748b'>{_esc(k)}</td><td valign='top'>{_esc(v)}</td></tr>")
         html.append("</table>")
-        related = [i for i in self.log.issues if i.row == row]
-        for issue in related:
-            title, text = self.log.issue_text(issue, lang)
-            _, color = SEV_STYLE[issue.severity]
-            html.append(f"<hr><p style='color:{color}'><b>{_esc(title)}</b></p><p>{_esc(text)}</p>")
         self.detail.setHtml("".join(html))
+
+    def _explanation_html(self, issue) -> str:
+        tr = self.tr_
+        ex = self.log.explain(issue, tr.lang)
+        _, color = SEV_STYLE[issue.severity]
+        sev = describe.severity_text(issue.severity, tr.lang)
+        out = [f"<p style='color:{color}; font-size:large'><b>[{sev}] {_esc(ex.title)}</b></p>",
+               f"<p><b>{_esc(tr('what'))}</b><br>{_esc(ex.what)}</p>"]
+        if ex.why:
+            out.append(f"<p><b>{_esc(tr('why'))}</b><br>{_esc(ex.why)}</p>")
+        if ex.steps:
+            items = "".join(f"<li style='margin-bottom:4px'>{_esc(s)}</li>" for s in ex.steps)
+            out.append(f"<p><b>{_esc(tr('steps'))}</b></p><ol>{items}</ol>")
+        return "".join(out)
 
     def _issue_selected(self, item, _prev):
         if item is None or self.log is None:
             return
-        issue = item.data(Qt.UserRole)
-        if issue is None:
+        group = item.data(Qt.UserRole)
+        if group is None:
             return
         tr = self.tr_
-        title, text = self.log.issue_text(issue, tr.lang)
-        _, color = SEV_STYLE[issue.severity]
-        sev = describe.severity_text(issue.severity, tr.lang)
-        html = [f"<p style='color:{color}'><b>[{sev}] {_esc(title)}</b></p>",
-                f"<p>{_esc(text)}</p>",
-                f"<p><a href='row:{issue.row}'>▶ {tr('go_to_frame')} (#{issue.row + 1}, {issue.t:.3f} s)</a></p>"]
+        issue = group.first
+        html = [self._explanation_html(issue)]
+        links = [f"<a href='row:{i.row}'>#{i.row + 1} ({i.t:.3f} s)</a>" for i in group.issues[:10]]
+        more = f" {tr('more_occ').format(group.count - 10)}" if group.count > 10 else ""
+        html.append(f"<p><b>{_esc(tr('occurrences'))}</b><br>{' · '.join(links)}{_esc(more)}</p>")
         if issue.related_row is not None:
             html.append(f"<p><a href='row:{issue.related_row}'>▶ {tr('go_to_related')} (#{issue.related_row + 1})</a></p>")
         self.goto_row(issue.row)
         self.detail_title.setText(tr("details"))
         self.detail.setHtml("".join(html))
         self.issue_list.setFocus()
+
+    def _show_raw(self, on: bool):
+        for col in (5, 6):
+            self.table.setColumnHidden(col, not on)
+
+    def export(self, kind: str):
+        if self.log is None:
+            return
+        tr = self.tr_
+        stem = Path(self.path).stem if self.path else "canopen-lens"
+        filters = {"txt": "Text (*.txt)", "json": "JSON (*.json)", "csv": "CSV (*.csv)"}
+        path, _ = QFileDialog.getSaveFileName(self, tr("export"), f"{stem}-report.{kind}", filters[kind])
+        if not path:
+            return
+        try:
+            if kind == "txt":
+                Path(path).write_text(self.log.report(tr.lang), encoding="utf-8-sig")
+            elif kind == "json":
+                self.log.to_json(path, tr.lang)
+            else:
+                self.log.to_csv(path, tr.lang)
+        except Exception as exc:
+            QMessageBox.warning(self, tr("export"), str(exc))
+            return
+        self.statusBar().showMessage(tr("export_done").format(path), 8000)
 
 
 def _esc(s: str) -> str:
@@ -713,6 +816,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     app = QApplication.instance() or QApplication(argv[:1])
     app.setApplicationName("CANopen Lens")
     _apply_style(app)
+    if "--self-test" in argv:
+        # used by the release build to check that the packaged app really works
+        from ..log import open_log
+
+        win = MainWindow(lang)
+        win.set_log(open_log(SAMPLE_LOG), str(SAMPLE_LOG))
+        app.processEvents()
+        ok = win.model.rowCount() > 0 and win.issue_list.count() > 0
+        print(f"canopen-lens {__version__} self-test: {'ok' if ok else 'FAILED'}", flush=True)
+        return 0 if ok else 1
     win = MainWindow(lang)
     win.show()
     if files:
