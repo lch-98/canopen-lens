@@ -355,10 +355,59 @@ def _axis_prefix(log: "CanopenLog", node: int, axis: int, lang: str) -> str:
     return ""
 
 
-def _obj(log: "CanopenLog", node: int, index: int, sub: int, lang: str) -> str:
+def obj_name(log: "CanopenLog", node: int, index: int, sub: int, lang: str) -> str:
+    """Name of an object; on multi-axis drives axis-1 objects (0x6000-0x67FF) are
+    labelled "축 1" so they cannot be mistaken for the whole device."""
     info = log.object_info(node, index, sub)
-    name = f" {info.name(lang)}" if info else ""
-    return f"0x{index:04X}:{sub:02X}{name}"
+    name = info.name(lang) if info else ""
+    if name and axis_of(index) == 0 and log.trace.axis_count(node) > 1:
+        name = _p(lang, "축 1 ", "Axis 1 ") + name
+    return name
+
+
+def _obj(log: "CanopenLog", node: int, index: int, sub: int, lang: str) -> str:
+    name = obj_name(log, node, index, sub, lang)
+    return f"0x{index:04X}:{sub:02X}" + (f" {name}" if name else "")
+
+
+CIA402_OBJECTS = {0x603F, 0x6040, 0x6041, 0x6060, 0x6061, 0x6064, 0x606C, 0x6071, 0x6077, 0x607A,
+                  0x6081, 0x6083, 0x6084, 0x6098, 0x60FF, 0x6502}
+
+
+def drive_reason(log: "CanopenLog", node: int, lang: str = "ko") -> str:
+    """Why a node is treated as a CiA 402 drive, pointing at the evidence in the log."""
+    eds = getattr(log, "eds", {}).get(node)
+    if eds is not None and eds.is_cia402:
+        return _p(lang, f"지정한 EDS({eds.title})의 장치 종류가 CiA 402(드라이브)입니다.",
+                  f"The attached EDS ({eds.title}) declares device profile CiA 402 (drive).")
+    try:
+        forced = any(n.node == node and n.drive_forced for n in log.trace.nodes)
+    except (AttributeError, TypeError):
+        forced = False
+    if forced:
+        return _p(lang, "노드 탭에서 'CiA 402 드라이브로 해석'을 직접 선택했습니다.",
+                  "'Decode as CiA 402 drive' was selected in the Nodes tab.")
+    if not hasattr(log.trace, "filter"):
+        return ""
+    sdo_rows = log.trace.filter(kinds=[Kind.SDO_REQ, Kind.SDO_RESP], node=node)
+    other = None
+    for row in sdo_rows:
+        r = log.trace.record(int(row))
+        if not r.sdo_index_known:
+            continue
+        if (r.kind == Kind.SDO_RESP and r.sdo_type == SdoType.UPLOAD_INIT and r.index == 0x1000
+                and r.value_len and (r.value & 0xFFFF) == 402):
+            return _p(lang, f"{int(row) + 1}행에서 장치 종류(0x1000)를 읽었더니 0x{r.value:08X}, 즉 CiA 402(드라이브)였습니다.",
+                      f"Row {int(row) + 1} read the device type (0x1000) as 0x{r.value:08X}, i.e. CiA 402 (drive).")
+        if other is None and r.kind == Kind.SDO_REQ and r.sub == 0 and axis_base(r.index) in CIA402_OBJECTS:
+            other = _p(lang, f"{int(row) + 1}행에서 CiA 402 드라이브에만 있는 오브젝트 {_obj(log, node, r.index, r.sub, lang)}에 접근했습니다.",
+                       f"Row {int(row) + 1} accessed {_obj(log, node, r.index, r.sub, lang)}, an object only CiA 402 drives have.")
+        if (other is None and r.kind == Kind.SDO_REQ and r.sdo_type == SdoType.DOWNLOAD_INIT and r.sub >= 1
+                and (0x1600 <= r.index <= 0x1603 or 0x1A00 <= r.index <= 0x1A03)
+                and axis_base(r.value >> 16) in (0x6040, 0x6041)):
+            other = _p(lang, f"{int(row) + 1}행에서 컨트롤워드/스테이터스워드를 PDO에 매핑했습니다.",
+                       f"Row {int(row) + 1} mapped the controlword/statusword into a PDO.")
+    return other or ""
 
 
 def _value_text(log: "CanopenLog", node: int, index: int, sub: int, raw: int, nbytes: int, lang: str) -> str:
@@ -366,7 +415,8 @@ def _value_text(log: "CanopenLog", node: int, index: int, sub: int, raw: int, nb
     dtype = info.dtype if info else None
     if 0x1600 <= index <= 0x17FF or 0x1A00 <= index <= 0x1BFF:
         if sub > 0 and nbytes == 4:
-            return mapping_entry_text(raw)
+            name = obj_name(log, node, raw >> 16, (raw >> 8) & 0xFF, lang) if raw else ""
+            return mapping_entry_text(raw) + (f" ({name})" if name else "")
     base = axis_base(index)
     if base == 0x6040 and nbytes == 2:
         return f"0x{raw:04X} → {cw_command_text(decode_controlword(raw), lang)}"
@@ -415,9 +465,7 @@ def frame_summary(log: "CanopenLog", row: int, lang: str = "ko") -> str:
             if r.words_count and axis_base(fld.index) in (0x6040, 0x6041):
                 continue
             info = log.object_info(r.node, fld.index, fld.sub)
-            label = info.name(lang) if info else f"0x{fld.index:04X}:{fld.sub:02X}"
-            if axis_of(fld.index) == 0 and log.trace.axis_count(r.node) > 1:
-                label = _p(lang, "축 1 ", "Axis 1 ") + label
+            label = obj_name(log, r.node, fld.index, fld.sub, lang) or f"0x{fld.index:04X}:{fld.sub:02X}"
             value = format_value(fld.raw, fld.bits, info.dtype if info else None, bits=True)
             if axis_base(fld.index) in (0x6060, 0x6061):
                 mode = to_signed(fld.raw, 8)
@@ -501,14 +549,24 @@ def frame_details(log: "CanopenLog", row: int, lang: str = "ko") -> list[tuple[s
     if r.kind in (Kind.TPDO, Kind.RPDO) and r.map_ref is not None:
         m = log.trace.mapping(r.map_ref)
         origin = {
-            "CIA402_DEFAULT": _p(lang, "CiA 402 기본 매핑 (추정)", "CiA 402 default mapping (assumed)"),
-            "EDS": "EDS",
-            "LOG_SDO": _p(lang, f"로그 안의 SDO 설정 (행 {m.since_row + 1})", f"SDO configuration in the log (row {m.since_row + 1})"),
+            "CIA402_DEFAULT": _p(lang, "CiA 402 표준 기본 매핑 (추정)", "CiA 402 default mapping (assumed)"),
+            "EDS": _p(lang, "지정한 EDS 파일", "the attached EDS file"),
+            "LOG_SDO": _p(lang, f"로그 안의 SDO 설정 ({m.since_row + 1}행에서 완료)",
+                          f"SDO configuration in the log (completed at row {m.since_row + 1})"),
         }.get(m.origin.name, "-")
         rows.append((_p(lang, "PDO 매핑 출처", "Mapping source"), origin))
+        if m.origin.name == "CIA402_DEFAULT":
+            layout = " + ".join(_obj(log, r.node, e.index, e.sub, lang) for e in m.entries)
+            pdo = f"{'TPDO' if m.tx else 'RPDO'}{m.num}"
+            reason = drive_reason(log, r.node, lang)
+            rows.append((_p(lang, "추정 근거", "Why assumed"), _p(lang,
+                f"{reason} 로그에 이 PDO의 매핑 설정이 없고 EDS도 지정되지 않아, CiA 402 표준 기본 배치({pdo} = {layout})를 적용했습니다. "
+                "장치가 다른 배치를 쓰면 값이 틀릴 수 있으니, 노드 탭에서 EDS를 지정하면 정확해집니다.",
+                f"{reason} The log contains no mapping for this PDO and no EDS is attached, so the CiA 402 default layout "
+                f"({pdo} = {layout}) is used. If the device uses a different layout the values may be wrong; attach the EDS in the Nodes tab to be sure.").strip()))
         for fld in log.trace.pdo_fields(row):
             info = log.object_info(r.node, fld.index, fld.sub)
-            label = f"0x{fld.index:04X}:{fld.sub:02X} " + (info.name(lang) if info else "")
+            label = f"0x{fld.index:04X}:{fld.sub:02X} " + obj_name(log, r.node, fld.index, fld.sub, lang)
             val = format_value(fld.raw, fld.bits, info.dtype if info else None, bits=True)
             if not fld.complete:
                 val += _p(lang, " (프레임이 짧아 값이 잘림)", " (frame too short)")

@@ -127,3 +127,23 @@ def test_cli_json_and_brief(tmp_path):
     r = subprocess.run([sys.executable, "-m", "canopen_lens", "report", str(SAMPLE), "--brief", "--fail-on-error"],
                        capture_output=True, text=True)
     assert r.returncode == 1 and "fault" in r.stdout
+
+
+def test_axis1_objects_are_labelled_on_multi_axis_nodes(log):
+    rows = log.trace.filter(kinds=[__import__("canopen_lens").Kind.TPDO], node=5)
+    row = int(rows[0])
+    labels = [k for k, _ in log.details(row, "ko")]
+    assert "0x6041:00 축 1 스테이터스워드" in labels
+    assert "0x6841:00 축 2 스테이터스워드" in labels
+    # single-axis drives keep the plain name
+    row2 = int(log.trace.filter(kinds=[__import__("canopen_lens").Kind.TPDO], node=2)[0])
+    assert "0x6041:00 스테이터스워드" in [k for k, _ in log.details(row2, "ko")]
+
+
+def test_assumed_mapping_explains_why(log):
+    row = int(log.trace.filter(kinds=[__import__("canopen_lens").Kind.TPDO], node=2)[0])
+    d = dict(log.details(row, "ko"))
+    assert "추정" in d["PDO 매핑 출처"]
+    assert "8행" in d["추정 근거"] and "0x1000" in d["추정 근거"] and "EDS" in d["추정 근거"]
+    d_en = dict(log.details(row, "en"))
+    assert "Row 8" in d_en["Why assumed"]
