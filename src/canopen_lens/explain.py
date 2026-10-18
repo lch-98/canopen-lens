@@ -104,7 +104,7 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
         err = 0x603F + 0x800 * issue.axis
         return E(
             L(f"노드 {n}: 비상 메시지 – {emcy_text(issue.code, lang)}", f"Node {n}: emergency – {emcy_text(issue.code, lang)}"),
-            L(f"노드 {josa(n, "이가")} 스스로 오류를 감지하고 비상(EMCY) 메시지를 보냈습니다. 오류 코드 0x{issue.code:04X}, 오류 종류: {reg}.",
+            L(f"노드 {josa(n, '이가')} 스스로 오류를 감지하고 비상(EMCY) 메시지를 보냈습니다. 오류 코드 0x{issue.code:04X}, 오류 종류: {reg}.",
               f"Node {n} detected an error itself and sent an emergency (EMCY) message. Error code 0x{issue.code:04X}, category: {reg}."),
             L("대부분의 장치는 EMCY를 보낸 뒤 동작을 멈추거나 제한합니다. 같은 시점의 드라이브 폴트와 함께 보는 것이 좋습니다.",
               "Most devices stop or limit operation after an EMCY. Look at it together with any drive fault at the same time."),
@@ -118,7 +118,7 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
     if T == IssueType.EMCY_RESET:
         return E(
             L(f"노드 {n}: 오류 해제 알림", f"Node {n}: error reset"),
-            L(f"노드 {josa(n, "이가")} 이전 오류가 모두 사라졌다고 알렸습니다 (EMCY 0x0000).",
+            L(f"노드 {josa(n, '이가')} 이전 오류가 모두 사라졌다고 알렸습니다 (EMCY 0x0000).",
               f"Node {n} reported that all previous errors are cleared (EMCY 0x0000)."),
             L("문제가 해결됐다는 좋은 신호입니다. 앞의 오류와 짝을 맞춰 보면 오류가 얼마나 지속됐는지 알 수 있습니다.",
               "A good sign. Pair it with the earlier error to see how long the problem lasted."),
@@ -128,7 +128,7 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
         period = issue.expected * 1000
         return E(
             L(f"노드 {n}: 생존 신호(하트비트)가 {issue.value:.2f}초 끊김", f"Node {n}: heartbeat gap of {issue.value:.2f} s"),
-            L(f"노드 {josa(n, "은는")} 평소 {period:.0f} ms마다 '살아 있음' 신호를 보내는데, {issue.value:.2f}초 동안 보내지 않았다가 다시 보냈습니다.",
+            L(f"노드 {josa(n, '은는')} 평소 {period:.0f} ms마다 '살아 있음' 신호를 보내는데, {issue.value:.2f}초 동안 보내지 않았다가 다시 보냈습니다.",
               f"Node {n} normally says 'I am alive' every {period:.0f} ms, but went silent for {issue.value:.2f} s and then came back."),
             L("잠깐이라도 통신이 끊기면 마스터가 노드를 잃은 것으로 판단해 장비를 멈출 수 있습니다.",
               "Even a short silence can make the master think the node is gone and stop the machine."),
@@ -143,7 +143,7 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
         period = issue.expected * 1000
         return E(
             L(f"노드 {n}: 생존 신호(하트비트)가 끊긴 뒤 돌아오지 않음", f"Node {n}: heartbeat stopped"),
-            L(f"노드 {josa(n, "은는")} 평소 {period:.0f} ms마다 하트비트를 보냈는데, 마지막 하트비트 이후 {issue.value:.2f}초 동안 아무 신호가 없습니다.",
+            L(f"노드 {josa(n, '은는')} 평소 {period:.0f} ms마다 하트비트를 보냈는데, 마지막 하트비트 이후 {issue.value:.2f}초 동안 아무 신호가 없습니다.",
               f"Node {n} sent a heartbeat every {period:.0f} ms, but nothing for {issue.value:.2f} s after the last one."),
             L("노드가 꺼졌거나, 멈췄거나, 버스에서 떨어져 나간 상태로 보입니다.",
               "The node looks switched off, hung, or disconnected from the bus."),
@@ -157,13 +157,13 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
         if issue.code:
             return E(
                 L(f"노드 {n}: 리셋 명령 후 재시작", f"Node {n}: restarted after a reset command"),
-                L(f"마스터의 리셋 명령 직후 노드 {josa(n, "이가")} 다시 켜졌다는 메시지(Boot-up)를 보냈습니다.",
+                L(f"마스터의 리셋 명령 직후 노드 {josa(n, '이가')} 다시 켜졌다는 메시지(Boot-up)를 보냈습니다.",
                   f"Node {n} sent boot-up right after the master's reset command."),
                 L("정상적인 동작입니다.", "This is normal."),
                 [])
         return E(
             L(f"노드 {n}: 예상치 못한 재시작", f"Node {n}: unexpected restart"),
-            L(f"리셋 명령이 없었는데 노드 {josa(n, "이가")} 방금 켜졌다는 메시지(Boot-up)를 다시 보냈습니다.",
+            L(f"리셋 명령이 없었는데 노드 {josa(n, '이가')} 방금 켜졌다는 메시지(Boot-up)를 다시 보냈습니다.",
               f"Node {n} sent boot-up again although nobody asked it to reset."),
             L("노드가 스스로 재시작했다는 뜻이라, 그 순간 설정과 상태가 초기화됐을 수 있습니다.",
               "The node restarted on its own, so its settings and state may have been reset at that moment."),
