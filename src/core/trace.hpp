@@ -50,6 +50,8 @@ public:
     uint32_t skipped_lines() const { return parsed_.skipped_lines; }
     const std::string& format() const { return parsed_.format; }
     std::vector<uint32_t> kind_counts() const;
+    // Per-identifier counts and timing, sorted by identifier (works for any CAN traffic).
+    std::vector<IdStats> id_stats() const;
 
     // Row indices matching all given criteria. kind_mask is a bit set over Kind,
     // node < 0 means any node, index < 0 means any object index.

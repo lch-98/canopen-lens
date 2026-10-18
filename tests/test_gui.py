@@ -74,3 +74,33 @@ def test_dialogs(app):
 
 def test_sample_is_packaged():
     assert Path(SAMPLE_LOG).is_file()
+
+
+def test_live_monitor_demo(app, tmp_path):
+    import time
+
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    w = MainWindow("ko")
+    live = w.live
+    live.start(speed=50.0)                      # replay the sample 50x faster
+    deadline = time.time() + 15
+    while live.running and time.time() < deadline:
+        loop = QEventLoop()
+        QTimer.singleShot(100, loop.quit)
+        loop.exec()
+    assert not live.running                     # the replay finished on its own
+    assert live.decoder.frame_count == len(open_log(SAMPLE_LOG))
+    assert live.model.rowCount() > 0 and live.finding_list.count() > 0
+    live._refresh_nodes()
+    assert live.node_table.rowCount() == 5
+    live.finding_list.setCurrentRow(0)
+    assert live.detail.toPlainText()
+    live._open_in_analysis()                    # the recording opens in the analysis tab
+    deadline = time.time() + 10
+    while w.log is None and time.time() < deadline:
+        loop = QEventLoop()
+        QTimer.singleShot(100, loop.quit)
+        loop.exec()
+    assert w.modes.currentIndex() == 0 and len(w.log) == live.decoder.frame_count
+    w.close()

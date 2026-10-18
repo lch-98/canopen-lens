@@ -106,6 +106,37 @@ std::vector<uint32_t> Trace::kind_counts() const {
     return c;
 }
 
+std::vector<IdStats> Trace::id_stats() const {
+    std::map<uint64_t, IdStats> m;  // key: ext<<32 | id
+    for (const auto& f : parsed_.frames) {
+        if (f.error) continue;
+        uint64_t key = (static_cast<uint64_t>(f.ext) << 32) | f.id;
+        auto it = m.find(key);
+        if (it == m.end()) {
+            IdStats s;
+            s.id = f.id;
+            s.ext = f.ext;
+            s.first_t = s.last_t = f.t;
+            it = m.emplace(key, s).first;
+        } else {
+            double gap = f.t - it->second.last_t;
+            if (gap > it->second.max_gap) it->second.max_gap = gap;
+            it->second.last_t = f.t;
+        }
+        IdStats& s = it->second;
+        s.count++;
+        s.min_dlc = std::min(s.min_dlc, f.dlc);
+        s.max_dlc = std::max(s.max_dlc, f.dlc);
+    }
+    std::vector<IdStats> out;
+    out.reserve(m.size());
+    for (auto& [k, s] : m) {
+        if (s.count > 1) s.mean_period = (s.last_t - s.first_t) / (s.count - 1);
+        out.push_back(s);
+    }
+    return out;
+}
+
 std::vector<uint32_t> Trace::filter(uint32_t kind_mask, int node, bool issues_only, int index) const {
     std::vector<uint32_t> out;
     out.reserve(records_.size());

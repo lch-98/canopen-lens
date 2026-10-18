@@ -46,7 +46,8 @@ Run `canopen-lens` to open the window.
 2. **Open it** – drop the file on the window. No log yet? Click **Try the sample log**.
 3. **Read the overview** – the colour at the top is the verdict; below it are the status of each device and the problems to check first, most important first. Repeats of the same problem are shown once with a count.
 4. **Dig deeper** – **Show the messages** jumps to the moment of a problem, with every message explained in one line.
-5. **State timeline** – how each device and motor axis changed state over time. Red is a fault, a gap means the device went silent. Click a bar to jump there.
+5. **Live monitor** – the **Live monitor** tab connects to a USB-CAN adapter or SocketCAN and shows messages and problems as they happen (`socketcan`, `pcan`, `kvaser`, `ixxat`, `vector`, `slcan`, `gs_usb`). No hardware? Pick **Demo** to replay the sample log in real time. Everything received is recorded and can be saved as a candump file or opened in log analysis with one click.
+6. **State timeline** – how each device and motor axis changed state over time. Red is a fault, a gap means the device went silent. Click a bar to jump there.
 
 Unknown words are explained under **Glossary**. **Save results** writes a readable report (.txt), JSON or an Excel-friendly CSV.
 
@@ -84,6 +85,10 @@ Verdicts: **✔ OK** – nothing went wrong · **▲ recovered** – something w
    `TPDO1: Axis 1 state: Enabled (SW 0x0237), Axis 2 state: Fault (SW 0x0218), Axis 1 Velocity actual value=800`.
 4. **Following the story.** SDO questions are paired with answers; each node's heartbeat period is learned and late heartbeats are flagged; every CiA 402 axis gets its own state machine, commands are checked against the state that follows, and EMCY messages around a fault are linked to it.
 5. **Grouping.** Identical findings are collapsed and sorted by importance.
+
+Clicking a message shows a **byte-by-byte** breakdown. For `582#4300100092010200`: `43` = command byte (binary `010 0 00 1 1`: read reply, value inside the frame, 4 bytes), `00 10` = index `0x1000` read back to front (CANopen sends the least significant byte first), `00` = sub-index, `92 01 02 00` = `0x00020192`: profile `0x0192` = 402 (drive), additional info `0x0002` = servo drive.
+
+**Not CANopen?** `candump` records every frame regardless of protocol. If a log has no heartbeat/NMT/SDO/EMCY/SYNC at all, or mostly 29-bit IDs (J1939, vendor protocols), the overview says so instead of pretending, and shows a protocol-independent **traffic by ID** table (count, period, largest gap, DLC).
 
 Decoding runs in C++; a two-million-frame log opens in one to two seconds on an ordinary PC, and only the rows on screen are turned into text, so large logs stay responsive.
 
@@ -142,7 +147,7 @@ Type hints are included for IDE completion.
 
 ## Limitations
 
-- Input is `candump` only; PCAN `.trc` is next.
+- Log files must be in `candump` format; PCAN `.trc` is next (the live monitor can use PCAN adapters directly).
 - PDOs are assumed to use the default COB-IDs (`0x180 + node`, …); COB-IDs changed through `0x1400`/`0x1800` are not followed yet.
 - Axes 2–8 of multi-axis drives are decoded when the EDS or the log provides their PDO mapping.
 - Findings are guidance based on what the log shows; the device manual has the final word.

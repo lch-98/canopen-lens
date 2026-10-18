@@ -91,6 +91,9 @@ def report_dict(log: "CanopenLog", lang: str = "ko") -> dict:
         "verdict": h.level,
         "headline": h.headline,
         "overview": h.overview,
+        "looks_like_canopen": h.protocol.looks_like_canopen if h.protocol else None,
+        "protocol_note": h.protocol.text if h.protocol else "",
+        "traffic_by_id": log.id_statistics(lang),
         "nodes": [{"node": n.node, "status": n.level, "headline": n.headline, "details": n.details} for n in h.nodes],
         "findings": [
             dict(issue_dict(log, g.first, lang), count=g.count,

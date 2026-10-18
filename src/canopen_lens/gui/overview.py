@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +79,8 @@ class OverviewPage(QScrollArea):
         if log is not None:
             h = log.health(self.tr_.lang)
             self._verdict(lay, h)
+            if h.protocol and h.protocol.looks_like_canopen is False:
+                self._not_canopen(lay, log, h)
             self._nodes(lay, h)
             self._findings(lay, log, h)
         lay.addStretch(1)
@@ -97,6 +101,32 @@ class OverviewPage(QScrollArea):
         row.addLayout(col, 1)
         cl.addLayout(row)
         lay.addWidget(fr)
+
+    def _not_canopen(self, lay: QVBoxLayout, log: CanopenLog, h: HealthSummary) -> None:
+        tr = self.tr_
+        fr, cl = _card("#fcd34d", "#fffbeb")
+        cl.addWidget(_label(h.protocol.text, color="#92400e"))
+        lay.addWidget(fr)
+        lay.addWidget(_label(tr("id_stats"), bold=True, size=1.15))
+        lay.addWidget(_label(tr("id_stats_hint"), color="#64748b"))
+        rows = log.id_statistics(tr.lang)
+        table = QTableWidget(len(rows), 5)
+        table.setHorizontalHeaderLabels(["ID", tr("col_count"), tr("col_period"), tr("col_gap"), "DLC"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        for r, d in enumerate(rows):
+            vals = [d["id"], f"{d['count']:,}", f"{d['period_ms']:.2f}" if d["period_ms"] else "-",
+                    f"{d['max_gap_ms']:.2f}" if d["max_gap_ms"] else "-", d["dlc"]]
+            for c, v in enumerate(vals):
+                item = QTableWidgetItem(v)
+                if c:
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                table.setItem(r, c, item)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.resizeColumnsToContents()
+        table.setMinimumHeight(min(420, 30 + 24 * max(len(rows), 1)))
+        lay.addWidget(table)
+        lay.addWidget(_label(tr("assumed_canopen"), color="#92400e"))
 
     def _nodes(self, lay: QVBoxLayout, h: HealthSummary) -> None:
         lay.addWidget(_label(self.tr_("ov_nodes"), bold=True, size=1.15))

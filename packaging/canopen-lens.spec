@@ -5,7 +5,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 root = Path(SPECPATH).parent
 datas = collect_data_files("canopen_lens", includes=["examples/*.log", "py.typed"])
@@ -17,15 +17,17 @@ excludes = [
     "PySide6.QtMultimedia", "PySide6.QtCharts", "PySide6.QtDataVisualization",
     "PySide6.QtPdf", "PySide6.QtPdfWidgets", "PySide6.QtSql", "PySide6.QtTest",
     "PySide6.QtBluetooth", "PySide6.QtNetwork", "PySide6.QtOpenGL", "PySide6.QtSvg",
-    "tkinter", "pandas", "numpy", "can",
+    "tkinter", "pandas", "numpy",
 ]
+# python-can loads its interface drivers by name at runtime, so bundle them all
+hidden = ["canopen_lens._core"] + collect_submodules("can.interfaces") + collect_submodules("can.io")
 
 a = Analysis(
     [str(root / "packaging" / "app_entry.py")],
     pathex=[],
     binaries=[],
     datas=datas,
-    hiddenimports=["canopen_lens._core"],
+    hiddenimports=hidden,
     excludes=excludes,
     noarchive=False,
 )

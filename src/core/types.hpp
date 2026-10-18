@@ -207,6 +207,19 @@ struct PdoField {
     bool complete = true;      // false if the frame was too short
 };
 
+// Traffic statistics of one CAN identifier, independent of CANopen.
+struct IdStats {
+    uint32_t id = 0;
+    bool ext = false;
+    uint32_t count = 0;
+    double first_t = 0.0;
+    double last_t = 0.0;
+    uint8_t min_dlc = 255;
+    uint8_t max_dlc = 0;
+    double mean_period = 0.0;   // average interval between frames, 0 if < 2 frames
+    double max_gap = 0.0;       // longest interval
+};
+
 struct StatePoint {
     double t = 0.0;
     uint32_t row = 0;

@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
-from ._core import AxisState, IssueType, Severity
+from ._core import AxisState, IssueType, Kind, Severity
 from .describe import (
     _obj,
     _p,
@@ -327,6 +327,67 @@ class HealthSummary:
     overview: str
     nodes: list[NodeHealth]
     groups: list[IssueGroup]
+    protocol: "ProtocolCheck" = None
+
+
+@dataclass
+class ProtocolCheck:
+    """Does the log look like CANopen at all?"""
+    looks_like_canopen: Optional[bool]   # None: too few frames to tell
+    total: int
+    management_frames: int               # NMT, heartbeat, SDO, EMCY, SYNC, LSS
+    ext_ratio: float                     # share of 29-bit identifiers
+    title: str = ""
+    text: str = ""
+
+
+_MANAGEMENT = (Kind.NMT, Kind.HEARTBEAT, Kind.SDO_REQ, Kind.SDO_RESP, Kind.EMCY, Kind.SYNC, Kind.LSS)
+
+
+def protocol_check(log: "CanopenLog", lang: str = "ko") -> ProtocolCheck:
+    L = lambda ko, en: _p(lang, ko, en)  # noqa: E731
+    tr = log.trace
+    counts = tr.kind_counts
+    total = sum(counts.values()) - counts.get(Kind.ERROR_FRAME, 0)
+    mgmt = sum(counts.get(k, 0) for k in _MANAGEMENT)
+    stats = tr.id_stats()
+    n_ext = sum(st.count for st in stats if st.ext)
+    ext_ratio = n_ext / total if total else 0.0
+    if total < 20:
+        return ProtocolCheck(None, total, mgmt, ext_ratio)
+    if ext_ratio > 0.5:
+        return ProtocolCheck(False, total, mgmt, ext_ratio,
+            L("이 로그는 CANopen 통신이 아닌 것 같습니다", "This log does not look like CANopen"),
+            L(f"메시지의 {ext_ratio:.0%}가 29비트 ID를 씁니다. CANopen은 11비트 ID를 쓰므로, J1939(트럭·농기계)나 제조사 고유 프로토콜일 가능성이 큽니다. "
+              "아래 'ID별 통계'로 어떤 ID가 얼마나 자주 오갔는지는 볼 수 있지만, CANopen 해석과 진단 결과는 의미가 없습니다.",
+              f"{ext_ratio:.0%} of the messages use 29-bit IDs. CANopen uses 11-bit IDs, so this is probably J1939 or a vendor protocol. "
+              "The 'traffic by ID' table below still shows which IDs were sent and how often, but the CANopen decoding and findings do not apply."))
+    if mgmt == 0:
+        return ProtocolCheck(False, total, mgmt, ext_ratio,
+            L("CANopen 통신이 아닐 수 있습니다", "This may not be CANopen"),
+            L("CANopen 장치라면 거의 항상 보내는 관리 메시지(하트비트, NMT, SDO, EMCY, SYNC)가 하나도 없습니다. "
+              "그래서 ID 번호만 보고 PDO로 해석했지만, 실제로는 다른 프로토콜(자동차 CAN, 제조사 고유 형식 등)일 수 있습니다. "
+              "CANopen 장비가 맞다면 하트비트가 꺼져 있거나 로그를 너무 짧게 뜬 경우이니, 장치를 켜는 순간부터 다시 기록해 보세요.",
+              "There is not a single management message (heartbeat, NMT, SDO, EMCY, SYNC) that CANopen devices almost always send. "
+              "The frames were decoded as PDOs from their IDs alone, but this may well be another protocol (automotive CAN, a vendor format, …). "
+              "If it really is CANopen, heartbeats may be disabled or the log is too short; try recording from power-on."))
+    return ProtocolCheck(True, total, mgmt, ext_ratio)
+
+
+def id_statistics(log: "CanopenLog", lang: str = "ko") -> list[dict]:
+    """Per-identifier traffic table: works for any CAN log, CANopen or not."""
+    out = []
+    for st in log.trace.id_stats():
+        out.append({
+            "id": f"0x{st.id:08X}" if st.ext else f"0x{st.id:03X}",
+            "count": st.count,
+            "period_ms": round(st.mean_period * 1000, 2) if st.mean_period else None,
+            "max_gap_ms": round(st.max_gap * 1000, 2) if st.count > 1 else None,
+            "dlc": str(st.min_dlc) if st.min_dlc == st.max_dlc else f"{st.min_dlc}–{st.max_dlc}",
+            "first_s": round(st.first_t, 6),
+            "last_s": round(st.last_t, 6),
+        })
+    return out
 
 
 _LEVEL = {Severity.INFO: 0, Severity.WARNING: 1, Severity.ERROR: 2}
@@ -407,7 +468,13 @@ def health_summary(log: "CanopenLog", lang: str = "ko") -> HealthSummary:
         headline = L("문제가 발견되지 않았습니다", "No problems found")
     overview = L(f"{trace.duration:.1f}초 동안 {len(trace):,}개 메시지, 노드 {len(nodes)}개를 분석했습니다.",
                  f"Analyzed {len(trace):,} messages from {len(nodes)} node(s) over {trace.duration:.1f} s.")
-    return HealthSummary(_LEVEL_NAME[overall], headline, overview, nodes, groups)
+    proto = protocol_check(log, lang)
+    if proto.looks_like_canopen is False:
+        overall = max(overall, 1)
+        headline = proto.title
+        overview = L(f"{trace.duration:.1f}초 동안 메시지 {len(trace):,}개, ID {len(trace.id_stats())}종류가 기록되어 있습니다.",
+                     f"{len(trace):,} messages with {len(trace.id_stats())} different IDs over {trace.duration:.1f} s.")
+    return HealthSummary(_LEVEL_NAME[overall], headline, overview, nodes, groups, proto)
 
 
 def summary_text(log: "CanopenLog", lang: str = "ko") -> str:
@@ -416,6 +483,14 @@ def summary_text(log: "CanopenLog", lang: str = "ko") -> str:
     h = health_summary(log, lang)
     marks = {"ok": "✔", "warning": "▲", "error": "✖"}
     out = [f"{marks[h.level]} {h.headline}", h.overview, ""]
+    if h.protocol and h.protocol.looks_like_canopen is False:
+        out += [h.protocol.text, "", L("[ID별 통계]", "[Traffic by ID]"),
+                L("  ID          개수    평균 주기(ms)  최대 간격(ms)  DLC", "  ID          count   period (ms)    max gap (ms)   DLC")]
+        for d in id_statistics(log, lang):
+            per = f"{d['period_ms']:.2f}" if d["period_ms"] else "-"
+            gap = f"{d['max_gap_ms']:.2f}" if d["max_gap_ms"] else "-"
+            out.append(f"  {d['id']:<11} {d['count']:>7,}  {per:>13}  {gap:>13}  {d['dlc']}")
+        out += ["", L("[CANopen으로 가정한 해석]", "[Decoded as if it were CANopen]")]
     out.append(L("[노드별 상태]", "[Nodes]"))
     for n in h.nodes:
         out.append(f"  {marks[n.level]} {n.headline}")

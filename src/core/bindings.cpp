@@ -187,6 +187,17 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("raw", &PdoField::raw)
         .def_readonly("complete", &PdoField::complete);
 
+    py::class_<IdStats>(m, "IdStats")
+        .def_readonly("id", &IdStats::id)
+        .def_readonly("ext", &IdStats::ext)
+        .def_readonly("count", &IdStats::count)
+        .def_readonly("first_t", &IdStats::first_t)
+        .def_readonly("last_t", &IdStats::last_t)
+        .def_readonly("min_dlc", &IdStats::min_dlc)
+        .def_readonly("max_dlc", &IdStats::max_dlc)
+        .def_readonly("mean_period", &IdStats::mean_period)
+        .def_readonly("max_gap", &IdStats::max_gap);
+
     py::class_<StatePoint>(m, "StatePoint")
         .def_readonly("t", &StatePoint::t)
         .def_readonly("row", &StatePoint::row)
@@ -258,6 +269,7 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("nodes", &Trace::nodes)
         .def("axis_timeline", &Trace::axis_timeline, py::arg("node"), py::arg("axis") = 0)
         .def("axis_words", &Trace::axis_words, py::arg("row"))
+        .def("id_stats", &Trace::id_stats, py::call_guard<py::gil_scoped_release>())
         .def("axis_count", &Trace::axis_count, py::arg("node"))
         .def("mapping", &Trace::mapping, py::arg("ref"), py::return_value_policy::copy)
         .def_property_readonly("mapping_count", &Trace::mapping_count)

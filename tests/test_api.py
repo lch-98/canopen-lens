@@ -147,3 +147,77 @@ def test_assumed_mapping_explains_why(log):
     assert "8행" in d["추정 근거"] and "0x1000" in d["추정 근거"] and "EDS" in d["추정 근거"]
     d_en = dict(log.details(row, "en"))
     assert "Row 8" in d_en["Why assumed"]
+
+
+def test_byte_breakdown_explains_sdo_bytes(log):
+    rows = log.byte_breakdown(7, "en")           # 43 00 10 00 92 01 02 00
+    assert [b for b, _ in rows] == ["43", "00 10", "00", "92 01 02 00"]
+    assert "read reply" in rows[0][1] and "e=1" in rows[0][1]
+    assert "0x1000" in rows[1][1]
+    assert "0x00020192 = 131474" in rows[3][1] and "CiA 402" in rows[3][1] and "servo" in rows[3][1]
+    assert "least significant byte first" in rows[3][1]
+    ko = log.byte_breakdown(7, "ko")
+    assert "서보 드라이브" in ko[3][1]
+
+
+def test_byte_breakdown_other_kinds(log):
+    from canopen_lens import Kind
+
+    tr = log.trace
+    for kind, expect in ((Kind.EMCY, "error code"), (Kind.HEARTBEAT, "NMT state"), (Kind.NMT, "NMT command")):
+        row = int(tr.filter(kinds=[kind])[0])
+        assert expect in log.byte_breakdown(row, "en")[0][1]
+    pdo = int(tr.filter(kinds=[Kind.TPDO], node=5)[0])
+    assert len(log.byte_breakdown(pdo, "en")) == 3
+
+
+def test_non_canopen_log_is_flagged():
+    import random
+
+    from canopen_lens import CanopenLog
+
+    rnd = random.Random(1)
+    lines = []
+    for k in range(200):
+        t = k * 0.01
+        lines.append(f"({t:.6f}) can0 316#{rnd.randbytes(8).hex()}")
+        lines.append(f"({t + 0.002:.6f}) can0 1A0#{rnd.randbytes(4).hex()}")
+    lg = CanopenLog.from_text("\n".join(lines))
+    p = lg.protocol_check("en")
+    assert p.looks_like_canopen is False and "management" in p.text
+    h = lg.health("en")
+    assert h.level == "warning" and h.headline == p.title
+    stats = {d["id"]: d for d in lg.id_statistics()}
+    assert stats["0x316"]["count"] == 200 and abs(stats["0x316"]["period_ms"] - 10.0) < 0.01
+    assert "Traffic by ID" in lg.report("en")
+
+    j1939 = CanopenLog.from_text("\n".join(f"({k * 0.1:.1f}) can0 18FEF100#0102030405060708" for k in range(30)))
+    assert j1939.protocol_check("en").looks_like_canopen is False and "29-bit" in j1939.protocol_check("en").text
+
+
+def test_sample_is_canopen(log):
+    assert log.protocol_check().looks_like_canopen is True
+
+
+def test_live_snapshots_keep_their_meaning(log):
+    dec = LiveDecoder()
+    tr = log.trace
+    snaps = []
+    for i in range(200):
+        f = tr.frame(i)
+        dec.feed(tr.t0 + f.t, f.id, f.data, is_extended=f.ext, is_remote=f.rtr, is_error=f.error)
+        snaps.append(dec.snapshot())
+    for i in (7, 25, 86, 150):
+        assert snaps[i].summary("ko") == log.summary(i, "ko")
+    assert snaps[7].byte_breakdown("en")[3][0] == "92 01 02 00"
+
+
+def test_live_clock_alignment():
+    can = pytest.importorskip("can")
+    import time
+
+    dec = LiveDecoder()
+    # an interface that stamps frames with "seconds since boot"
+    for k in range(10):
+        dec.feed_message(can.Message(timestamp=5.0 + k * 0.1, arbitration_id=0x701, data=b"\x05", is_extended_id=False))
+    assert dec.tick(time.time()) == []           # must not look like a 1.7-billion-second silence

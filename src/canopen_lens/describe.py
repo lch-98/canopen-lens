@@ -417,6 +417,8 @@ def _value_text(log: "CanopenLog", node: int, index: int, sub: int, raw: int, nb
         if sub > 0 and nbytes == 4:
             name = obj_name(log, node, raw >> 16, (raw >> 8) & 0xFF, lang) if raw else ""
             return mapping_entry_text(raw) + (f" ({name})" if name else "")
+    if index == 0x1000 and sub == 0 and nbytes == 4:
+        return f"0x{raw:08X} → {device_type_text(raw, lang)}"
     base = axis_base(index)
     if base == 0x6040 and nbytes == 2:
         return f"0x{raw:04X} → {cw_command_text(decode_controlword(raw), lang)}"
@@ -615,3 +617,222 @@ def issue_text(log: "CanopenLog", issue, lang: str = "ko") -> tuple[str, str]:
 
     ex = explain_issue(log, issue, lang)
     return ex.title, ex.as_text(lang)
+
+
+# --------------------------------------------------------------------------
+# Device type (object 0x1000)
+# --------------------------------------------------------------------------
+
+DEVICE_PROFILES = {
+    401: ("범용 입출력(I/O) 모듈", "generic I/O module"),
+    402: ("드라이브·모션 제어 (CiA 402)", "drive and motion control (CiA 402)"),
+    404: ("측정 장치·폐루프 제어기", "measuring device / closed-loop controller"),
+    405: ("PLC (IEC 61131-3)", "PLC (IEC 61131-3)"),
+    406: ("엔코더", "encoder"),
+    408: ("유압 밸브", "hydraulic valve"),
+    410: ("경사계", "inclinometer"),
+    417: ("엘리베이터", "lift / elevator"),
+    418: ("배터리", "battery module"),
+    419: ("충전기", "battery charger"),
+}
+
+CIA402_TYPES = {
+    0x01: ("주파수 변환기(인버터)", "frequency converter"),
+    0x02: ("서보 드라이브", "servo drive"),
+    0x03: ("스테퍼 모터 드라이브", "stepper motor drive"),
+}
+
+
+def device_type_text(raw: int, lang: str) -> str:
+    """0x00020192 -> 'CiA 402 드라이브·모션 제어, 추가 정보 0x0002 (서보 드라이브)'."""
+    profile = raw & 0xFFFF
+    extra = (raw >> 16) & 0xFFFF
+    if profile == 0:
+        name = _p(lang, "표준 프로파일 없음 (제조사 고유 장치)", "no standard profile (vendor specific)")
+    elif profile in DEVICE_PROFILES:
+        name = _p(lang, *DEVICE_PROFILES[profile])
+    else:
+        name = _p(lang, f"CiA {profile} 프로파일", f"CiA {profile} profile")
+    text = f"{name}"
+    if profile and profile not in (402,) and profile in DEVICE_PROFILES:
+        text = f"CiA {profile} {name}"
+    if extra:
+        detail = ""
+        if profile == 402 and (extra & 0xFF) in CIA402_TYPES:
+            detail = f" ({_p(lang, *CIA402_TYPES[extra & 0xFF])})"
+        text += _p(lang, f", 추가 정보 0x{extra:04X}{detail}", f", additional info 0x{extra:04X}{detail}")
+    return text
+
+
+# --------------------------------------------------------------------------
+# What each byte means (for people learning to read raw frames)
+# --------------------------------------------------------------------------
+
+_SDO_REQ_CS = {
+    0: ("분할 쓰기 데이터 조각", "download segment"),
+    1: ("쓰기 시작 (initiate download)", "initiate download (write)"),
+    2: ("읽기 시작 (initiate upload)", "initiate upload (read)"),
+    3: ("다음 조각 요청 (upload segment)", "upload segment request"),
+    4: ("전송 중단 (abort)", "abort"),
+    5: ("블록 읽기 (block upload)", "block upload"),
+    6: ("블록 쓰기 (block download)", "block download"),
+}
+_SDO_RESP_CS = {
+    0: ("분할 읽기 데이터 조각", "upload segment"),
+    1: ("조각 수신 확인", "download segment acknowledge"),
+    2: ("읽기 응답 (initiate upload response)", "initiate upload response (read reply)"),
+    3: ("쓰기 성공 응답 (initiate download response)", "initiate download response (write OK)"),
+    4: ("전송 중단 (abort)", "abort"),
+    5: ("블록 쓰기", "block download"),
+    6: ("블록 읽기", "block upload"),
+}
+
+
+def _hex(b: bytes) -> str:
+    return " ".join(f"{x:02X}" for x in b)
+
+
+def _le(b: bytes) -> int:
+    return int.from_bytes(b, "little")
+
+
+def _le_text(b: bytes, lang: str) -> str:
+    """'92 01 02 00' -> '거꾸로 읽으면 0x00020192'."""
+    v = _le(b)
+    width = len(b) * 2
+    if len(b) == 1:
+        return f"0x{v:02X} = {v}"
+    return _p(lang, f"뒤에서부터 읽으면 0x{v:0{width}X} = {v} (CANopen은 작은 자리 바이트가 먼저 옵니다)",
+              f"read back to front: 0x{v:0{width}X} = {v} (CANopen sends the least significant byte first)")
+
+
+def _sdo_bytes(log, r, f, lang) -> list[tuple[str, str]]:
+    d = bytes(f.data)
+    if not d:
+        return []
+    req = r.kind == Kind.SDO_REQ
+    b0 = d[0]
+    cs = b0 >> 5
+    table = _SDO_REQ_CS if req else _SDO_RESP_CS
+    name = _p(lang, *table.get(cs, ("알 수 없는 명령", "unknown command")))
+    who = _p(lang, "마스터 → 노드 요청", "master → node request") if req else _p(lang, "노드 → 마스터 응답", "node → master reply")
+    parts = [_p(lang, f"명령 바이트. 2진수 {b0 >> 5:03b} {b0 & 0x1F:05b} → 앞 3비트 {cs} = {name} ({who})",
+                f"command byte, binary {b0 >> 5:03b} {b0 & 0x1F:05b} → top 3 bits {cs} = {name} ({who})")]
+    initiate = (req and cs == 1) or (not req and cs == 2)
+    if initiate:
+        e, sflag, n = (b0 >> 1) & 1, b0 & 1, (b0 >> 2) & 3
+        if e:
+            nbytes = 4 - n if sflag else 4
+            parts.append(_p(lang, f"e=1: 값이 이 프레임 안에 바로 들어 있음(빠른 전송), s={sflag}, n={n}: 뒤 4바이트 중 {nbytes}바이트가 값",
+                            f"e=1: the value is inside this frame (expedited), s={sflag}, n={n}: {nbytes} of the last 4 bytes hold it"))
+        else:
+            parts.append(_p(lang, "e=0: 값이 길어서 여러 프레임으로 나눠 보냄(분할 전송)" + (", s=1: 뒤 4바이트가 전체 크기" if sflag else ""),
+                            "e=0: the value is long and follows in segments" + (", s=1: the last 4 bytes give the total size" if sflag else "")))
+    elif (req and cs in (0, 3)) or (not req and cs in (0, 1)):
+        t = (b0 >> 4) & 1
+        parts.append(_p(lang, f"토글 비트 t={t} (조각마다 0과 1을 번갈아 씀)", f"toggle bit t={t} (alternates 0/1 per segment)"))
+    rows = [(_hex(d[:1]), "; ".join(parts))]
+    if (req and cs in (0, 3)) or (not req and cs in (0, 1)):
+        carries = (req and cs == 0) or (not req and cs == 0)
+        if len(d) > 1 and carries:
+            unused = (b0 >> 1) & 7
+            data = d[1:8 - unused]
+            text = f" '{data.decode('latin-1')}'" if data and all(32 <= c < 127 for c in data) else ""
+            last = _p(lang, ", c=1: 마지막 조각", ", c=1: last segment") if b0 & 1 else ""
+            rows.append((_hex(data), _p(lang, f"조각 데이터{text}", f"segment data{text}") + last))
+            if unused:
+                rows.append((_hex(d[8 - unused:]), _p(lang, f"사용하지 않는 바이트 {unused}개 (n={unused})", f"{unused} unused byte(s) (n={unused})")))
+        elif len(d) > 1:
+            rows.append((_hex(d[1:]), _p(lang, "사용하지 않음 (0)", "unused (0)")))
+        return rows
+    if len(d) >= 3:
+        idx = _le(d[1:3])
+        rows.append((_hex(d[1:3]), _p(lang, f"오브젝트 인덱스: 두 바이트를 거꾸로 읽어 0x{idx:04X}", f"object index: the two bytes read back to front = 0x{idx:04X}")
+                     + (f" ({obj_name(log, r.node, idx, d[3] if len(d) > 3 else 0, lang)})" if obj_name(log, r.node, idx, d[3] if len(d) > 3 else 0, lang) else "")))
+    if len(d) >= 4:
+        rows.append((_hex(d[3:4]), _p(lang, f"서브인덱스: {d[3]}", f"sub-index: {d[3]}")))
+    if len(d) >= 8:
+        payload = d[4:8]
+        if cs == 4:
+            rows.append((_hex(payload), _p(lang, "중단 코드. ", "abort code. ") + _le_text(payload, lang)
+                         + f" → {sdo_abort_text(_le(payload), lang)[0]}"))
+        elif initiate and (b0 >> 1) & 1:
+            n = (b0 >> 2) & 3 if b0 & 1 else 0
+            used = payload[:4 - n]
+            v = _le(used)
+            meaning = _p(lang, "값: ", "value: ") + _le_text(used, lang)
+            if r.sdo_index_known:
+                info = log.object_info(r.node, r.index, r.sub)
+                vt = _value_text(log, r.node, r.index, r.sub, v, len(used), lang)
+                plain = format_value(v, len(used), info.dtype if info else None)
+                for prefix in (f"0x{v:0{len(used) * 2}X} → ", f"{v} → "):
+                    if vt.startswith(prefix):
+                        vt = vt[len(prefix):]
+                if vt != plain and vt.split(" (")[0] != str(v):
+                    meaning += f" → {vt}"
+            rows.append((_hex(used), meaning))
+            if n:
+                rows.append((_hex(payload[4 - n:]), _p(lang, "사용하지 않는 바이트", "unused")))
+        elif initiate and b0 & 1:
+            rows.append((_hex(payload), _p(lang, "전체 데이터 크기: ", "total size: ") + _le_text(payload, lang) + _p(lang, " 바이트", " bytes")))
+        else:
+            rows.append((_hex(payload), _p(lang, "사용하지 않음 (0)", "unused (0)")))
+    return rows
+
+
+def byte_breakdown(log: "CanopenLog", row: int, lang: str = "ko") -> list[tuple[str, str]]:
+    rows = _byte_breakdown(log, row, lang)
+    # say once that bytes are little-endian, not on every line
+    note = _p(lang, " (CANopen은 작은 자리 바이트가 먼저 옵니다)", " (CANopen sends the least significant byte first)")
+    seen = False
+    out = []
+    for b, m in rows:
+        if note in m:
+            if seen:
+                m = m.replace(note, "")
+            seen = True
+        out.append((b, m))
+    return out
+
+
+def _byte_breakdown(log: "CanopenLog", row: int, lang: str = "ko") -> list[tuple[str, str]]:
+    r = log.trace.record(row)
+    f = log.trace.frame(row)
+    d = bytes(f.data)
+    k = r.kind
+    if f.rtr or not d:
+        return []
+    if k in (Kind.SDO_REQ, Kind.SDO_RESP):
+        return _sdo_bytes(log, r, f, lang)
+    if k == Kind.NMT and len(d) >= 2:
+        return [(_hex(d[:1]), _p(lang, "NMT 명령: ", "NMT command: ") + nmt_cmd_text(d[0], lang)),
+                (_hex(d[1:2]), _p(lang, "대상 노드 (0이면 모든 노드)", "target node (0 = all nodes)") + f": {d[1]}")]
+    if k == Kind.HEARTBEAT:
+        return [(_hex(d[:1]), _p(lang, "노드의 현재 NMT 상태: ", "the node's NMT state: ") + hb_state_text(d[0] & 0x7F, lang))]
+    if k == Kind.SYNC:
+        return [(_hex(d[:1]), _p(lang, "SYNC 카운터 (1부터 세는 번호)", "SYNC counter"))]
+    if k == Kind.EMCY and len(d) >= 3:
+        code = _le(d[0:2])
+        rows = [(_hex(d[0:2]), _p(lang, "오류 코드. ", "error code. ") + _le_text(d[0:2], lang) + f" → {emcy_text(code, lang)}"),
+                (_hex(d[2:3]), _p(lang, "에러 레지스터(0x1001): ", "error register (0x1001): ") + error_register_text(d[2], lang))]
+        if len(d) > 3:
+            rows.append((_hex(d[3:]), _p(lang, "제조사 전용 데이터 (장치 매뉴얼 참고)", "manufacturer specific data (see the device manual)")))
+        return rows
+    if k in (Kind.TPDO, Kind.RPDO) and r.map_ref is not None:
+        rows = []
+        off = 0
+        for fld in log.trace.pdo_fields(row):
+            name = obj_name(log, r.node, fld.index, fld.sub, lang) or f"0x{fld.index:04X}:{fld.sub:02X}"
+            info = log.object_info(r.node, fld.index, fld.sub)
+            value = format_value(fld.raw, fld.bits, info.dtype if info else None, bits=True)
+            if off % 8 == 0 and fld.bits % 8 == 0:
+                chunk = d[off // 8:(off + fld.bits) // 8]
+                rows.append((_hex(chunk), f"{name} ({fld.bits} bit). " + (_le_text(chunk, lang) if len(chunk) > 1 else f"{value}")
+                             + (f" → {value}" if len(chunk) > 1 and value.split(' (')[0] != str(_le(chunk)) else "")))
+            else:
+                rows.append((_p(lang, f"비트 {off}–{off + fld.bits - 1}", f"bits {off}–{off + fld.bits - 1}"), f"{name}: {value}"))
+            off += fld.bits
+        if off // 8 < len(d) and off % 8 == 0:
+            rows.append((_hex(d[off // 8:]), _p(lang, "매핑되지 않은 바이트", "not mapped")))
+        return rows
+    return []

@@ -11,7 +11,7 @@ from .eds import EdsFile
 from .objects import ObjectInfo, builtin_object
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .explain import Explanation, HealthSummary, IssueGroup
+    from .explain import Explanation, HealthSummary, IssueGroup, ProtocolCheck
 
 PathLike = Union[str, Path]
 
@@ -142,6 +142,22 @@ class CanopenLog(ObjectNames):
         from .explain import group_issues
 
         return group_issues(self.trace.issues)
+
+    def protocol_check(self, lang: str = "ko") -> "ProtocolCheck":
+        """Whether the log looks like CANopen at all (and why not)."""
+        from .explain import protocol_check
+
+        return protocol_check(self, lang)
+
+    def id_statistics(self, lang: str = "ko") -> list:
+        """Count, period and largest gap per CAN identifier. Useful for any CAN log."""
+        from .explain import id_statistics
+
+        return id_statistics(self, lang)
+
+    def byte_breakdown(self, row: int, lang: str = "ko") -> list[tuple[str, str]]:
+        """What each byte of a frame means, e.g. [("43", "command: read reply, 4 data bytes"), ...]."""
+        return describe.byte_breakdown(self, row, lang)
 
     def report(self, lang: str = "ko") -> str:
         """The whole diagnosis as readable text."""

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -45,6 +46,7 @@ from ..log import CanopenLog
 from .dialogs import glossary_dialog, help_dialog
 from .i18n import Tr
 from .models import KIND_COLORS, FrameTableModel
+from .live_page import LivePage
 from .overview import OverviewPage
 from .timeline import TimelineWidget
 
@@ -277,7 +279,14 @@ class MainWindow(QMainWindow):
         tb.addAction(self.act_lang)
 
         self.stack = QStackedWidget()
-        self.setCentralWidget(self.stack)
+        self.modes = QTabWidget()
+        self.modes.setDocumentMode(True)
+        self.modes.setStyleSheet("QTabWidget::tab-bar { left: 8px; } QTabBar::tab { padding: 8px 22px; font-weight: bold; }")
+        self.modes.addTab(self.stack, "")
+        self.live = LivePage(self.tr_, str(SAMPLE_LOG))
+        self.live.openInAnalysis.connect(self._open_live_recording)
+        self.modes.addTab(self.live, "")
+        self.setCentralWidget(self.modes)
 
         # --- welcome page
         self.drop = DropArea()
@@ -479,6 +488,8 @@ class MainWindow(QMainWindow):
         self.btn_sample.setText(tr("open_sample"))
         self.left_tabs.setTabText(0, tr("tab_issues"))
         self.left_tabs.setTabText(1, tr("tab_nodes"))
+        self.modes.setTabText(0, tr("mode_analysis"))
+        self.modes.setTabText(1, tr("mode_live"))
         self.center_tabs.setTabText(OVERVIEW_TAB, tr("tab_overview"))
         self.center_tabs.setTabText(FRAMES_TAB, tr("tab_frames"))
         self.center_tabs.setTabText(TIMELINE_TAB, tr("tab_timeline"))
@@ -510,6 +521,7 @@ class MainWindow(QMainWindow):
     def toggle_language(self):
         self.tr_.lang = "en" if self.tr_.lang == "ko" else "ko"
         self._retranslate()
+        self.live.retranslate()
         if self.log is not None:
             self.model.clear_cache()
             self.refresh_all(keep_selection=True)
@@ -529,9 +541,18 @@ class MainWindow(QMainWindow):
         if urls:
             self.load(urls[0].toLocalFile())
 
-    def load(self, path: str):
+    def _open_live_recording(self, path: str):
+        self.load(path, display_name=self.tr_("mode_live") + " " + time.strftime("%H:%M:%S"))
+
+    def closeEvent(self, ev):
+        self.live.shutdown()
+        super().closeEvent(ev)
+
+    def load(self, path: str, display_name: Optional[str] = None):
         if self._thread is not None:
             return
+        self._pending_name = display_name
+        self.modes.setCurrentIndex(0)
         self.status_label.setText(self.tr_("loading"))
         self.statusBar().showMessage(self.tr_("loading"))
         QApplication.setOverrideCursor(Qt.WaitCursor)
@@ -560,9 +581,10 @@ class MainWindow(QMainWindow):
         if len(log) == 0:
             QMessageBox.warning(self, self.tr_("load_failed"), self.tr_("no_frames"))
             return
-        self.set_log(log, path)
+        self.set_log(log, path, self._pending_name)
 
-    def set_log(self, log: CanopenLog, path: Optional[str] = None):
+    def set_log(self, log: CanopenLog, path: Optional[str] = None, display_name: Optional[str] = None):
+        self._display_name = display_name
         self.log = log
         self.path = path
         self.stack.setCurrentIndex(1)
@@ -576,7 +598,7 @@ class MainWindow(QMainWindow):
         log = self.log
         tr = self.tr_
         current = self.current_frame_row() if keep_selection else None
-        name = Path(self.path).name if self.path else "-"
+        name = getattr(self, "_display_name", None) or (Path(self.path).name if self.path else "-")
         fmt = log.trace.format
         self.file_label.setText(
             f"<b>{name}</b><br><span style='color:#64748b'>{len(log):,} {tr('frames')} · "
@@ -715,6 +737,14 @@ class MainWindow(QMainWindow):
             html.append(f"<h4>{_esc(tr('frame_findings'))}</h4>")
             for issue in related:
                 html.append(self._explanation_html(issue))
+        breakdown = self.log.byte_breakdown(row, lang)
+        if breakdown:
+            html.append(f"<h4>{_esc(tr('bytes_title'))}</h4><p style='color:#64748b'>{_esc(tr('bytes_hint'))}</p>"
+                        "<table cellspacing='0' cellpadding='4' width='100%'>")
+            for b, m in breakdown:
+                html.append(f"<tr><td valign='top' style='font-family:monospace; white-space:nowrap; background:#f1f5f9'>{_esc(b)}</td>"
+                            f"<td valign='top'>{_esc(m)}</td></tr>")
+            html.append("</table><h4>" + _esc(tr("details")) + "</h4>")
         html.append("<table cellspacing='0' cellpadding='4' width='100%'>")
         skip = {_k for _k in (describe._p(lang, "해석", "Meaning"), describe._p(lang, "설명", "What it is"))}
         for k, v in rows:
@@ -824,6 +854,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         win.set_log(open_log(SAMPLE_LOG), str(SAMPLE_LOG))
         app.processEvents()
         ok = win.model.rowCount() > 0 and win.issue_list.count() > 0
+        try:  # the live monitor's bus drivers must be bundled too
+            import can  # noqa: F401
+            import can.interfaces.virtual  # noqa: F401
+        except ImportError:
+            ok = False
         print(f"canopen-lens {__version__} self-test: {'ok' if ok else 'FAILED'}", flush=True)
         return 0 if ok else 1
     win = MainWindow(lang)

@@ -51,8 +51,67 @@ class _CurrentFrameView:
         return self._c.mapping(ref)
 
 
+class FrameSnapshot:
+    """A decoded frame kept for later display. Cheap to store; text is made on demand."""
+
+    __slots__ = ("frame", "record", "words", "fields", "_names")
+
+    def __init__(self, frame, record, words, fields, names: "LiveDecoder"):
+        self.frame = frame
+        self.record = record
+        self.words = words
+        self.fields = fields
+        self._names = names
+
+    def _view(self):
+        return _SnapshotLog(self)
+
+    def summary(self, lang: str = "ko") -> str:
+        return describe.frame_summary(self._view(), 0, lang)
+
+    def details(self, lang: str = "ko") -> list[tuple[str, str]]:
+        return describe.frame_details(self._view(), 0, lang)
+
+    def byte_breakdown(self, lang: str = "ko") -> list[tuple[str, str]]:
+        return describe.byte_breakdown(self._view(), 0, lang)
+
+
+class _SnapshotTrace:
+    def __init__(self, snap: FrameSnapshot):
+        self._s = snap
+
+    def record(self, row):
+        return self._s.record
+
+    def frame(self, row):
+        return self._s.frame
+
+    def axis_words(self, row):
+        return self._s.words
+
+    def pdo_fields(self, row):
+        return self._s.fields
+
+    def axis_count(self, node):
+        return self._s._names.core.axis_count(node)
+
+    def mapping(self, ref):
+        return self._s._names.core.mapping(ref)
+
+
+class _SnapshotLog:
+    def __init__(self, snap: FrameSnapshot):
+        self.trace = _SnapshotTrace(snap)
+        self._names = snap._names
+        self.eds = snap._names.eds
+
+    def object_info(self, node, index, sub):
+        return self._names.object_info(node, index, sub)
+
+
 class LiveDecoder(ObjectNames):
     def __init__(self, eds: Optional[dict] = None, options: Optional[Options] = None):
+        self._clock_offset: Optional[float] = None
         self.core = _CoreLive(options or Options())
         self.trace = _CurrentFrameView(self.core)  # used by the shared explanation code
         self.eds: dict[int, EdsFile] = {}
@@ -78,6 +137,7 @@ class LiveDecoder(ObjectNames):
 
     def reset(self) -> None:
         self.core.reset()
+        self._clock_offset = None
 
     # -- feeding -----------------------------------------------------------------------
     def feed(self, t: float, can_id: int, data: bytes = b"", *, is_extended: bool = False,
@@ -87,9 +147,16 @@ class LiveDecoder(ObjectNames):
         n = self.core.feed(t, can_id, bytes(data), is_extended, is_remote, is_error, is_fd)
         return self.core.issues_from(start) if n else []
 
+    def to_wall_clock(self, timestamp: float) -> float:
+        """Some interfaces stamp frames with time since boot instead of the wall clock.
+        Frames are shifted onto time.time() so that tick() compares like with like."""
+        if self._clock_offset is None:
+            self._clock_offset = time.time() - timestamp
+        return timestamp + self._clock_offset
+
     def feed_message(self, msg) -> list:
         """Same as feed() for a python-can `can.Message`."""
-        return self.feed(msg.timestamp, msg.arbitration_id, bytes(msg.data),
+        return self.feed(self.to_wall_clock(msg.timestamp), msg.arbitration_id, bytes(msg.data),
                          is_extended=msg.is_extended_id, is_remote=msg.is_remote_frame,
                          is_error=msg.is_error_frame, is_fd=getattr(msg, "is_fd", False))
 
@@ -130,6 +197,11 @@ class LiveDecoder(ObjectNames):
                 found += self.feed(tr.t0 if tr.has_timestamps else time.time(), f.id, f.data,
                                    is_extended=f.ext, is_remote=f.rtr, is_error=f.error, is_fd=f.fd)
         return found
+
+    def snapshot(self) -> FrameSnapshot:
+        """The newest frame with its decoding, to keep for display (see FrameSnapshot)."""
+        c = self.core
+        return FrameSnapshot(c.last_frame(), c.last_record(), c.last_words(), c.last_pdo_fields(), self)
 
     # -- results -----------------------------------------------------------------------
     def last_summary(self, lang: str = "ko") -> str:
