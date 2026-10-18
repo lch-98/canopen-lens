@@ -22,6 +22,21 @@ PyPI 업로드는 GitHub Actions가 대신 합니다. API 토큰을 저장소에
    | Workflow name | `release.yml` |
    | Environment name | `pypi` |
 
+## (선택) TestPyPI로 먼저 연습하기
+
+PyPI에는 같은 버전 번호를 **한 번만** 올릴 수 있고, 지워도 같은 번호로 다시 올릴 수 없습니다.
+그래서 처음에는 연습용 서버인 TestPyPI(https://test.pypi.org, 계정 따로 만들어야 함)에 먼저 올려 보는 것을 권장합니다.
+
+1. GitHub 저장소 → **Settings → Environments** 에서 `testpypi` 환경도 하나 더 만듭니다.
+2. https://test.pypi.org → **Your projects → Publishing → Add a new pending publisher** 에 위 표와 같은 값을 넣되,
+   Environment name 만 `testpypi` 로 적습니다.
+3. GitHub → **Actions → Release → Run workflow** 에서 **testpypi** 칸을 체크하고 실행합니다.
+4. 끝나면 아무 PC에서 설치해 봅니다 (의존 패키지는 진짜 PyPI에서 받도록 `--extra-index-url` 을 붙입니다).
+   ```bash
+   pip install -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "canopen-lens[gui]"
+   canopen-lens
+   ```
+
 ## 매 릴리스
 
 1. `pyproject.toml` 의 `version` 과 `src/canopen_lens/__init__.py` 의 `__version__` 을 같은 값으로 올립니다.

@@ -6,12 +6,17 @@ name: Release
 #                                                                   -> GitHub Release
 # PyPI publishing uses "trusted publishing", so no token is stored in the repository
 # (see RELEASING.md). "Run workflow" without a tag only builds and keeps the files
-# as workflow artifacts.
+# as workflow artifacts; ticking "testpypi" also uploads them to test.pypi.org.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      testpypi:
+        description: "Also upload the wheels to TestPyPI (rehearsal; the real PyPI is only used for tags)"
+        type: boolean
+        default: false
 
 jobs:
   wheels:
@@ -106,6 +111,27 @@ jobs:
           name: sdist
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-testpypi:
+    needs: [wheels, sdist]
+    if: github.event_name == 'workflow_dispatch' && inputs.testpypi
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
 
   github-release:
     needs: [wheels, sdist, app]
