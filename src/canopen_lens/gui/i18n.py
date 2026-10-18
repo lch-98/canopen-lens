@@ -15,6 +15,7 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "live_start": ("▶ 연결 시작", "▶ Start"),
     "live_stop": ("■ 연결 끊기", "■ Stop"),
     "live_demo": ("데모 (예제 로그를 실시간처럼 재생)", "Demo (replay the sample log)"),
+    "live_demo_amr": ("데모 – 2륜 AMR 예제 재생", "Demo – replay the two-wheel AMR example"),
     "live_hint_demo": ("장비 없이 기능을 체험하는 모드입니다. 예제 로그를 실제 시간 그대로 재생합니다. 장비에 연결하려면 위에서 연결 방식을 고르세요.",
                        "Try the feature without hardware: the sample log is replayed in real time. Pick an interface above to connect to a real bus."),
     "live_hint_socketcan": ("리눅스·라즈베리파이용입니다. 통신 속도는 미리 터미널에서 설정해 두세요: sudo ip link set can0 up type can bitrate 500000",
@@ -121,6 +122,10 @@ _STRINGS: dict[str, tuple[str, str]] = {
 
     "open": ("로그 열기", "Open log"),
     "open_sample": ("예제 로그 열어보기", "Try the sample log"),
+    "example_mixed": ("여러 장치 예제 – 드라이브 3대 + I/O, 여러 가지 문제가 들어 있음",
+                      "Mixed network – three drives and an I/O module with several problems"),
+    "example_amr": ("2륜 AMR 예제 – STM32 2축 드라이브 + ros2_canopen 마스터, 부팅부터 비상정지까지",
+                    "Two-wheel AMR – STM32 two-axis drive + ros2_canopen master, boot to E-stop"),
     "drop_title": ("candump 로그 파일을 여기에 끌어다 놓으세요", "Drop a candump log file here"),
     "drop_sub": ("또는 아래 버튼으로 파일을 고르세요. `candump -l can0` 로 만든 .log 파일과\n"
                  "`candump can0` 화면 출력을 저장한 텍스트 파일을 모두 읽을 수 있습니다.",

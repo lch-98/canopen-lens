@@ -183,6 +183,20 @@ def explain_issue(log: "CanopenLog", issue, lang: str = "ko") -> Explanation:
         if issue.related_row is not None and issue.related_code:
             cause = L(f" 같은 시점에 보고된 비상 메시지(EMCY 0x{issue.related_code:04X}, {emcy_text(issue.related_code, lang)})가 원인일 가능성이 큽니다.",
                       f" The emergency reported at the same time (EMCY 0x{issue.related_code:04X}, {emcy_text(issue.related_code, lang)}) is the likely cause.")
+        else:
+            cause = L(" 같은 시점에 비상 메시지(EMCY)는 없었습니다. 드라이브가 EMCY를 보내지 않도록 만들어졌거나, "
+                      "비상정지(E-Stop)·STO 같은 안전 입력으로 멈췄을 수 있습니다.",
+                      " No emergency message (EMCY) was sent at the same time: the drive may not send EMCYs, "
+                      "or it was stopped by a safety input such as an E-stop or STO.")
+        together = sorted({i.axis + 1 for i in log.issues
+                           if i.type == IssueType.AXIS_FAULT and i.node == n and i.axis != issue.axis
+                           and abs(i.t - issue.t) < 0.1})
+        if together:
+            axes = ", ".join(str(a) for a in together)
+            cause += L(f" 같은 장치의 축 {axes}도 같은 순간에 Fault가 됐습니다. 축 하나의 문제보다는 "
+                       "장치 전체에 걸리는 원인(비상정지, 전원, 장치 내부 보호 기능)을 먼저 의심하세요.",
+                       f" Axis {axes} of the same device faulted at the same moment, which points to a cause that "
+                       "affects the whole device (E-stop, power supply, internal protection) rather than one axis.")
         return E(
             L(f"{whom}: 드라이브가 오류로 멈춤 (Fault)", f"{whom}: drive stopped with a fault"),
             L(f"드라이브 상태(스테이터스워드 0x{issue.code:04X})가 'Fault'로 바뀌었습니다.{cause}",
@@ -394,12 +408,16 @@ _LEVEL = {Severity.INFO: 0, Severity.WARNING: 1, Severity.ERROR: 2}
 _LEVEL_NAME = ["ok", "warning", "error"]
 
 
+_DEVICE_KINDS = [Kind.TPDO, Kind.RPDO, Kind.SDO_REQ, Kind.SDO_RESP, Kind.EMCY]
+
+
 def health_summary(log: "CanopenLog", lang: str = "ko") -> HealthSummary:
     L = lambda ko, en: _p(lang, ko, en)  # noqa: E731
     trace = log.trace
     issues = list(trace.issues)
     groups = group_issues(issues)
     nodes = []
+    has_master_traffic = bool(len(trace.filter(kinds=[Kind.NMT, Kind.SYNC])))
     for ni in trace.nodes:
         mine = [i for i in issues if i.node == ni.node]
         # warning: something went wrong but the node recovered;
@@ -444,7 +462,18 @@ def health_summary(log: "CanopenLog", lang: str = "ko") -> HealthSummary:
         if n_emcy:
             details.append(L(f"비상 메시지(EMCY) {n_emcy}건.", f"{n_emcy} emergency message(s)."))
 
-        kind = L("CiA 402 드라이브", "CiA 402 drive") if ni.is_drive else L("일반 노드", "node")
+        if ni.is_drive:
+            kind = L("CiA 402 드라이브", "CiA 402 drive")
+        elif has_master_traffic and ni.last_hb_state >= 0 and not len(trace.filter(kinds=_DEVICE_KINDS, node=ni.node)):
+            # only heartbeats: nobody configures it and it exchanges no data, which is how a
+            # master (e.g. ros2_canopen) looks from the bus
+            kind = L("마스터로 보이는 노드", "probably the master")
+            details.append(L("하트비트만 보내고 PDO·SDO·EMCY는 주고받지 않습니다. 이런 노드는 보통 "
+                             "NMT 명령과 SYNC를 보내는 마스터(예: ros2_canopen)입니다.",
+                             "Sends only heartbeats and exchanges no PDO, SDO or EMCY, which is typical "
+                             "for the master that sends NMT commands and SYNC (e.g. ros2_canopen)."))
+        else:
+            kind = L("일반 노드", "node")
         if level == 2:
             head = L(f"노드 {ni.node} ({kind}): 확인이 필요한 문제가 있습니다", f"Node {ni.node} ({kind}): needs attention")
         elif level == 1:
@@ -462,6 +491,11 @@ def health_summary(log: "CanopenLog", lang: str = "ko") -> HealthSummary:
     if overall == 2:
         headline = L(f"문제가 발견되었습니다 – 오류 {n_err}종류, 경고 {n_warn}종류",
                      f"Problems found – {n_err} kind(s) of error, {n_warn} kind(s) of warning")
+    elif overall == 1 and n_err:
+        headline = L(f"문제가 있었지만 로그 끝에서는 모두 회복됐습니다 – 오류 {n_err}종류"
+                     + (f", 경고 {n_warn}종류" if n_warn else ""),
+                     f"Problems occurred but everything recovered – {n_err} kind(s) of error"
+                     + (f", {n_warn} kind(s) of warning" if n_warn else ""))
     elif overall == 1:
         headline = L(f"큰 문제는 없지만 주의할 점이 {n_warn}종류 있습니다", f"No errors, but {n_warn} kind(s) of warning")
     else:

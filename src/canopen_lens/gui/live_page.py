@@ -49,9 +49,12 @@ from .i18n import Tr
 from .models import KIND_COLORS
 
 DEMO = "demo"
+DEMO_AMR = "demo-amr"
+DEMOS = {DEMO: "sample_cia402.log", DEMO_AMR: "sample_amr_2wheel.log"}
 INTERFACES = [
     # (python-can interface, default channel, needs bitrate)
     (DEMO, "", False),
+    (DEMO_AMR, "", False),
     ("socketcan", "can0", False),
     ("pcan", "PCAN_USBBUS1", True),
     ("kvaser", "0", True),
@@ -412,6 +415,7 @@ class LivePage(QWidget):
             "QPushButton { background:%s; color:white; border-radius:6px; padding:4px 18px; font-weight:bold; }"
             % ("#dc2626" if self.running else "#16a34a"))
         self.iface.setItemText(0, tr("live_demo"))
+        self.iface.setItemText(1, tr("live_demo_amr"))
         self.lbl_findings.setText(tr("live_findings"))
         self.center.setTabText(0, tr("live_frames"))
         self.center.setTabText(1, tr("live_nodes"))
@@ -438,7 +442,7 @@ class LivePage(QWidget):
 
     def _iface_changed(self, *_):
         name, ch = self.iface.currentData()
-        demo = name == DEMO
+        demo = name in DEMOS
         if not self.running:
             self.channel.setText(ch)
         self.channel.setEnabled(not demo)
@@ -463,8 +467,9 @@ class LivePage(QWidget):
             return
         name, _ = self.iface.currentData()
         self.queue.clear()
-        if name == DEMO:
-            self.source = ReplaySource(self.queue, self.sample_log, speed)
+        if name in DEMOS:
+            path = str(Path(self.sample_log).with_name(DEMOS[name]))
+            self.source = ReplaySource(self.queue, path, speed)
             self.source.finished_replay.connect(self._replay_done)
             channel = "demo"
         else:

@@ -419,6 +419,14 @@ def _value_text(log: "CanopenLog", node: int, index: int, sub: int, raw: int, nb
             return mapping_entry_text(raw) + (f" ({name})" if name else "")
     if index == 0x1000 and sub == 0 and nbytes == 4:
         return f"0x{raw:08X} → {device_type_text(raw, lang)}"
+    if (0x1400 <= index <= 0x15FF or 0x1800 <= index <= 0x19FF) and sub == 1 and nbytes == 4:
+        return f"0x{raw:08X} → {pdo_cob_id_text(raw, node, index, lang)}"
+    if (0x1400 <= index <= 0x15FF or 0x1800 <= index <= 0x19FF) and sub == 2 and nbytes == 1:
+        return f"0x{raw:02X} → {transmission_type_text(raw, index >= 0x1800, lang)}"
+    if index == 0x1016 and sub >= 1 and nbytes == 4:
+        return f"0x{raw:08X} → {consumer_hb_text(raw, lang)}"
+    if axis_base(index) == 0x6502 and nbytes == 4:
+        return f"0x{raw:08X} → {drive_modes_text(raw, lang)}"
     base = axis_base(index)
     if base == 0x6040 and nbytes == 2:
         return f"0x{raw:04X} → {cw_command_text(decode_controlword(raw), lang)}"
@@ -643,12 +651,75 @@ CIA402_TYPES = {
 }
 
 
+def pdo_cob_id_text(raw: int, node: int, index: int, lang: str) -> str:
+    """0x80000181 on 0x1800 -> 'ID 0x181 (노드 1 TPDO1 기본값), 꺼짐 — 설정을 바꾸는 중'."""
+    tx = index >= 0x1800
+    n = index - (0x1800 if tx else 0x1400)          # 0-based PDO number
+    can_id = raw & (0x1FFFFFFF if raw & 0x20000000 else 0x7FF)
+    parts = [f"ID 0x{can_id:03X}"]
+    if n < 4 and 0 < node < 128 and not raw & 0x20000000:
+        default = (0x180 if tx else 0x200) + 0x100 * n + node
+        pdo = f"{'TPDO' if tx else 'RPDO'}{n + 1}"
+        if can_id == default:
+            parts[0] += _p(lang, f" (노드 {node} {pdo} 기본값)", f" (node {node} {pdo} default)")
+        else:
+            parts[0] += _p(lang, f" (기본값 0x{default:03X}과 다름)", f" (default would be 0x{default:03X})")
+    if raw & 0x20000000:
+        parts.append(_p(lang, "29비트 ID", "29-bit ID"))
+    if raw & 0x80000000:
+        parts.append(_p(lang, "꺼짐 (사용 안 함, 보통 설정을 바꾸는 동안)",
+                        "disabled (usually while it is being reconfigured)"))
+    else:
+        parts.append(_p(lang, "켜짐 (사용 중)", "enabled"))
+    if tx and raw & 0x40000000:
+        parts.append(_p(lang, "RTR 요청 받지 않음", "no RTR"))
+    return ", ".join(parts)
+
+
+def transmission_type_text(t: int, tx: bool, lang: str) -> str:
+    if t == 0:
+        return _p(lang, "SYNC 때, 값이 바뀌었을 때만", "on SYNC, only when changed (acyclic)")
+    if 1 <= t <= 240:
+        if tx:
+            return _p(lang, f"SYNC {t}번마다 보냄", f"sent every {t} SYNC")
+        return _p(lang, "받은 값을 다음 SYNC 때 적용", "applied at the next SYNC")
+    if t in (252, 253):
+        return _p(lang, "RTR 요청이 오면 보냄", "sent on RTR request")
+    if t == 254:
+        return _p(lang, "이벤트 (제조사 정의, 보통 값이 바뀌거나 타이머마다)",
+                  "event driven (manufacturer specific)")
+    if t == 255:
+        return _p(lang, "이벤트 (프로파일 정의)", "event driven (device profile)")
+    return _p(lang, "예약된 값", "reserved")
+
+
+def consumer_hb_text(raw: int, lang: str) -> str:
+    node = (raw >> 16) & 0x7F
+    ms = raw & 0xFFFF
+    if not node or not ms:
+        return _p(lang, "감시 안 함", "not monitored")
+    return _p(lang, f"노드 {node}의 하트비트를 {ms} ms 안에 못 받으면 이상으로 판단",
+              f"node {node} must send a heartbeat within {ms} ms")
+
+
+_DRIVE_MODE_BITS = [(0, "PP"), (1, "VL"), (2, "PV"), (3, "PT"), (5, "HM"), (6, "IP"),
+                    (7, "CSP"), (8, "CSV"), (9, "CST")]
+
+
+def drive_modes_text(raw: int, lang: str) -> str:
+    names = [name for bit, name in _DRIVE_MODE_BITS if raw & (1 << bit)]
+    if not names:
+        return _p(lang, "표준 운전 모드 없음", "no standard mode")
+    return _p(lang, "지원: ", "supports: ") + ", ".join(names)
+
+
 def device_type_text(raw: int, lang: str) -> str:
     """0x00020192 -> 'CiA 402 드라이브·모션 제어, 추가 정보 0x0002 (서보 드라이브)'."""
     profile = raw & 0xFFFF
     extra = (raw >> 16) & 0xFFFF
     if profile == 0:
-        name = _p(lang, "표준 프로파일 없음 (제조사 고유 장치)", "no standard profile (vendor specific)")
+        name = _p(lang, "프로파일이 적혀 있지 않음 (장치가 따르는 표준을 알려 주지 않음)",
+                  "no profile given (the device does not say which standard it follows)")
     elif profile in DEVICE_PROFILES:
         name = _p(lang, *DEVICE_PROFILES[profile])
     else:

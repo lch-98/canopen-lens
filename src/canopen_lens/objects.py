@@ -107,18 +107,19 @@ _FIXED: dict[tuple[int, Optional[int]], ObjectInfo] = {
     (0x6502, None): ObjectInfo("Supported drive modes", "지원 운전 모드", DT_UINT32),
 }
 
+# (Korean, English), like the other name tables
 MODES_OF_OPERATION = {
-    -1: ("Manufacturer specific", "제조사 전용"),
-    0: ("No mode", "모드 없음"),
-    1: ("Profile position (PP)", "프로파일 위치 (PP)"),
-    2: ("Velocity (VL)", "속도 (VL)"),
-    3: ("Profile velocity (PV)", "프로파일 속도 (PV)"),
-    4: ("Profile torque (PT)", "프로파일 토크 (PT)"),
-    6: ("Homing (HM)", "원점 복귀 (HM)"),
-    7: ("Interpolated position (IP)", "보간 위치 (IP)"),
-    8: ("Cyclic sync position (CSP)", "주기 동기 위치 (CSP)"),
-    9: ("Cyclic sync velocity (CSV)", "주기 동기 속도 (CSV)"),
-    10: ("Cyclic sync torque (CST)", "주기 동기 토크 (CST)"),
+    -1: ("제조사 전용", "Manufacturer specific"),
+    0: ("모드 없음", "No mode"),
+    1: ("프로파일 위치 (PP)", "Profile position (PP)"),
+    2: ("속도 (VL)", "Velocity (VL)"),
+    3: ("프로파일 속도 (PV)", "Profile velocity (PV)"),
+    4: ("프로파일 토크 (PT)", "Profile torque (PT)"),
+    6: ("원점 복귀 (HM)", "Homing (HM)"),
+    7: ("보간 위치 (IP)", "Interpolated position (IP)"),
+    8: ("주기 동기 위치 (CSP)", "Cyclic sync position (CSP)"),
+    9: ("주기 동기 속도 (CSV)", "Cyclic sync velocity (CSV)"),
+    10: ("주기 동기 토크 (CST)", "Cyclic sync torque (CST)"),
 }
 
 
@@ -138,6 +139,23 @@ def axis_base(index: int) -> int:
     return index - a * AXIS_OFFSET if a > 0 else index
 
 
+_PDO_COMM_SUBS = {
+    0: ("number of entries", "항목 수", DT_UINT8, ""),
+    1: ("COB-ID", "COB-ID (번호표)", DT_UINT32, ""),
+    2: ("transmission type", "전송 방식", DT_UINT8, ""),
+    3: ("inhibit time", "최소 전송 간격", DT_UINT16, "x100us"),
+    5: ("event timer", "이벤트 타이머", DT_UINT16, "ms"),
+    6: ("SYNC start value", "SYNC 시작값", DT_UINT8, ""),
+}
+
+
+def _pdo_comm(pdo: str, sub: int) -> ObjectInfo:
+    if sub in _PDO_COMM_SUBS:
+        en, ko, dtype, unit = _PDO_COMM_SUBS[sub]
+        return ObjectInfo(f"{pdo} {en}", f"{pdo} {ko}", dtype, unit)
+    return ObjectInfo(f"{pdo} communication parameter", f"{pdo} 통신 설정")
+
+
 def builtin_object(index: int, sub: int) -> Optional[ObjectInfo]:
     """Look up a well-known object, including the PDO parameter ranges."""
     a = axis_of(index)
@@ -151,7 +169,7 @@ def builtin_object(index: int, sub: int) -> Optional[ObjectInfo]:
         return info
     if 0x1400 <= index <= 0x15FF:
         n = index - 0x1400 + 1
-        return ObjectInfo(f"RPDO{n} communication parameter", f"RPDO{n} 통신 설정")
+        return _pdo_comm(f"RPDO{n}", sub)
     if 0x1600 <= index <= 0x17FF:
         n = index - 0x1600 + 1
         if sub == 0:
@@ -159,7 +177,7 @@ def builtin_object(index: int, sub: int) -> Optional[ObjectInfo]:
         return ObjectInfo(f"RPDO{n} mapping entry {sub}", f"RPDO{n} 매핑 {sub}번", DT_UINT32)
     if 0x1800 <= index <= 0x19FF:
         n = index - 0x1800 + 1
-        return ObjectInfo(f"TPDO{n} communication parameter", f"TPDO{n} 통신 설정")
+        return _pdo_comm(f"TPDO{n}", sub)
     if 0x1A00 <= index <= 0x1BFF:
         n = index - 0x1A00 + 1
         if sub == 0:

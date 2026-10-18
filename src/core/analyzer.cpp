@@ -104,8 +104,13 @@ int drive_evidence(const Frame& f, uint8_t& node) {
     bool init = req ? (cs == 1 || cs == 2) : (cs == 2 || cs == 3);
     if (!init) return 0;
     uint16_t index = static_cast<uint16_t>(f.data[1] | (f.data[2] << 8));
-    if (resp && cs == 2 && index == 0x1000 && (f.data[0] & 0x02) && f.dlc >= 6)
-        return (le32(&f.data[4], 2) & 0xFFFF) == 402 ? 1 : -1;
+    if (resp && cs == 2 && index == 0x1000 && (f.data[0] & 0x02) && f.dlc >= 6) {
+        uint32_t profile = le32(&f.data[4], 2) & 0xFFFF;
+        // 0 = the device does not name a profile (common on self-made CANopenNode
+        // devices), so it says nothing either way
+        if (profile == 0) return 0;
+        return profile == 402 ? 1 : -1;
+    }
     // Other profiles (e.g. CiA 401 I/O) also live in 0x6000-0x9FFF, so only
     // objects that are typical for CiA 402 count, on any axis.
     if (f.data[3] == 0 && is_cia402_object(axis_base(index))) return 1;

@@ -50,7 +50,12 @@ candump -l can0
 문제가 생기는 동작을 한 번 해 본 뒤 `Ctrl+C`로 멈추면 `candump-날짜_시간.log` 파일이 생깁니다.
 (`candump -t a can0 > log.txt`처럼 화면 출력을 저장한 파일도 읽을 수 있습니다.)
 
-**② 열기** — 파일을 창에 끌어다 놓습니다. 로그가 없으면 **예제 로그 열어보기**를 눌러 보세요.
+**② 열기** — 파일을 창에 끌어다 놓습니다. 로그가 없으면 **예제 로그 열어보기**에서 예제를 골라 보세요.
+
+| 예제 | 내용 |
+|---|---|
+| 여러 장치 예제 | 드라이브 3대 + I/O 모듈. SDO 실패, EMCY, 폴트 해제 실패, 하트비트 끊김 등 여러 문제가 들어 있습니다 |
+| 2륜 AMR 예제 | ros2_canopen 마스터(노드 2) + STM32 2축 드라이브(노드 1, 오른쪽 바퀴 = 축 1, 왼쪽 바퀴 = 축 2). 부팅 때 마스터가 SDO로 PDO 번호표(COB-ID)와 매핑을 설정하는 과정(끄기 → 매핑 → 켜기), 두 바퀴 운전 허가, 주행, 비상정지로 두 축이 함께 Fault가 됐다가 복구되는 과정이 들어 있습니다 |
 
 **③ 요약 화면 읽기** — 맨 위의 색(초록·주황·빨강)이 전체 판정입니다. 그 아래에 장치별 상태와 **먼저 확인할 것** 목록이 중요한 순서대로 나옵니다. 같은 문제가 여러 번 나오면 한 번만 보여주고 횟수를 적습니다.
 
@@ -274,7 +279,8 @@ git clone https://github.com/lch-98/canopen-lens
 cd canopen-lens
 pip install -e ".[gui,test,pandas,live]"
 pytest
-python tests/make_sample.py      # 예제 로그 다시 만들기
+python tests/make_sample.py      # 여러 장치 예제 다시 만들기
+python tests/make_amr_sample.py  # 2륜 AMR 예제 다시 만들기
 ```
 
 배포 방법은 [RELEASING.md](RELEASING.md)를 참고하세요.

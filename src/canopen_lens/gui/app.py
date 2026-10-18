@@ -52,7 +52,10 @@ from .timeline import TimelineWidget
 
 OVERVIEW_TAB, FRAMES_TAB, TIMELINE_TAB = 0, 1, 2
 
-SAMPLE_LOG = Path(__file__).resolve().parent.parent / "examples" / "sample_cia402.log"
+EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples"
+SAMPLE_LOG = EXAMPLE_DIR / "sample_cia402.log"
+# (file, i18n key) shown under "Try the sample log"
+EXAMPLES = [("sample_cia402.log", "example_mixed"), ("sample_amr_2wheel.log", "example_amr")]
 
 SEV_STYLE = {
     Severity.ERROR: ("●", "#dc2626"),
@@ -252,9 +255,17 @@ class MainWindow(QMainWindow):
         self.act_open.setShortcut(QKeySequence.Open)
         self.act_open.triggered.connect(self.open_dialog)
         tb.addAction(self.act_open)
-        self.act_sample = QAction(self)
-        self.act_sample.triggered.connect(lambda: self.load(str(SAMPLE_LOG)))
-        tb.addAction(self.act_sample)
+        # one menu with every example, used by the toolbar and the start page
+        self.sample_menu = QMenu(self)
+        self.sample_actions = []
+        for name, key in EXAMPLES:
+            act = self.sample_menu.addAction("", lambda p=str(EXAMPLE_DIR / name): self.load(p))
+            self.sample_actions.append((act, key))
+        self.btn_sample_tb = QToolButton()
+        self.btn_sample_tb.setPopupMode(QToolButton.InstantPopup)
+        self.btn_sample_tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.btn_sample_tb.setMenu(self.sample_menu)
+        tb.addWidget(self.btn_sample_tb)
         self.btn_export = QToolButton()
         self.btn_export.setPopupMode(QToolButton.InstantPopup)
         self.export_menu = QMenu(self)
@@ -313,7 +324,7 @@ class MainWindow(QMainWindow):
         btns.addWidget(self.btn_open)
         self.btn_sample = QPushButton()
         self.btn_sample.setMinimumHeight(40)
-        self.btn_sample.clicked.connect(lambda: self.load(str(SAMPLE_LOG)))
+        self.btn_sample.setMenu(self.sample_menu)
         btns.addWidget(self.btn_sample)
         btns.addStretch(1)
         dl.addSpacing(18)
@@ -480,7 +491,9 @@ class MainWindow(QMainWindow):
         tr = self.tr_
         self.setWindowTitle(f"{tr('app_title')} {__version__}" + (f" – {Path(self.path).name}" if self.path else ""))
         self.act_open.setText(tr("open"))
-        self.act_sample.setText(tr("open_sample"))
+        self.btn_sample_tb.setText(tr("open_sample"))
+        for act, key in self.sample_actions:
+            act.setText(tr(key))
         self.act_lang.setText(tr("language"))
         self.drop_title.setText(tr("drop_title"))
         self.drop_sub.setText(tr("drop_sub"))

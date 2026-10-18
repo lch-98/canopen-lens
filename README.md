@@ -43,7 +43,7 @@ Run `canopen-lens` to open the window.
 ## Five-minute guide
 
 1. **Record a log** on the Linux PC or Raspberry Pi attached to the machine: `candump -l can0`, reproduce the problem, stop with `Ctrl+C`. (Saved console output such as `candump -t a can0 > log.txt` works too.)
-2. **Open it** – drop the file on the window. No log yet? Click **Try the sample log**.
+2. **Open it** – drop the file on the window. No log yet? Pick an example under **Try the sample log**: a mixed network with many problems, or a two-wheel AMR (ros2_canopen master + STM32 two-axis drive) from boot-time PDO configuration to an E-stop and recovery.
 3. **Read the overview** – the colour at the top is the verdict; below it are the status of each device and the problems to check first, most important first. Repeats of the same problem are shown once with a count.
 4. **Dig deeper** – **Show the messages** jumps to the moment of a problem, with every message explained in one line.
 5. **Live monitor** – the **Live monitor** tab connects to a USB-CAN adapter or SocketCAN and shows messages and problems as they happen (`socketcan`, `pcan`, `kvaser`, `ixxat`, `vector`, `slcan`, `gs_usb`). No hardware? Pick **Demo** to replay the sample log in real time. Everything received is recorded and can be saved as a candump file or opened in log analysis with one click.
@@ -160,7 +160,8 @@ git clone https://github.com/lch-98/canopen-lens
 cd canopen-lens
 pip install -e ".[gui,test,pandas,live]"
 pytest
-python tests/make_sample.py      # regenerate the sample log
+python tests/make_sample.py      # regenerate the mixed-network example
+python tests/make_amr_sample.py  # regenerate the two-wheel AMR example
 ```
 
 Releases: see [RELEASING.md](RELEASING.md).
