@@ -311,7 +311,7 @@ def detail_lines(inc, lang: str, st: Style) -> list[str]:
         out.append(st.dim("   " + L("왜 중요한가요  ", "Why it matters  ")) + inc.why)
     rows = inc.rows
     shown = " ".join(f"#{r + 1}" for r in rows[:8]) + (" …" if len(rows) > 8 else "")
-    out.append(st.dim("   " + L("근거 메시지    ", "Messages       ")) + shown)
+    out.append(st.dim("   " + L("근거 메시지    ", "Messages        ")) + shown)
     return out
 
 

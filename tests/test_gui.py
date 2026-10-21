@@ -24,15 +24,18 @@ def test_gui_shows_sample(app):
     w.set_log(open_log(SAMPLE_LOG), str(SAMPLE_LOG))
     app.processEvents()
     assert w.model.rowCount() == len(w.log)
-    assert w.center_tabs.currentIndex() == OVERVIEW_TAB          # beginners land on the overview
-    groups = w.log.grouped_issues()
-    assert w.card_err.value.text() == str(sum(1 for g in groups if g.severity == Severity.ERROR))
-    assert w.issue_list.count() == len(groups)                    # repeats are grouped
-    # selecting a finding jumps to its frame and explains it
-    w.issue_list.setCurrentRow(0)
-    first = w.issue_list.currentItem().data(0x0100).first
+    assert w.center_tabs.currentIndex() == OVERVIEW_TAB          # beginners land on the summary
+    ov = w.summary.ov
+    assert w.summary.headline.text() == "확인이 필요합니다"
+    assert w.summary.count_labels["open"].text() == "3"
+    assert sorted(w.summary.rows) == [i.number for i in ov.incidents]   # one row per incident
+    # a row opens its story on the right; the button jumps to the message
+    w.summary.rows[5].clicked.emit()
+    assert w.summary.selected == 5 and w.summary.side.currentWidget() is w.summary.detail_box
+    inc = ov.get(5)
+    w.summary.showRow.emit(inc.first_row)
     assert w.center_tabs.currentIndex() == FRAMES_TAB
-    assert w.current_frame_row() == first.row
+    assert w.current_frame_row() == inc.first_row
     assert "확인" in w.detail.toPlainText()
     # raw data is hidden for beginners until asked for
     assert w.table.isColumnHidden(5) and w.table.isColumnHidden(6)
@@ -43,10 +46,30 @@ def test_gui_shows_sample(app):
     assert 0 < w.model.rowCount() < len(w.log)
     w.toggle_language()
     app.processEvents()
-    assert w.tr_.lang == "en"
+    assert w.tr_.lang == "en" and w.summary.headline.text() == "Needs attention"
     w.center_tabs.setCurrentIndex(TIMELINE_TAB)
     app.processEvents()
-    assert w.timeline.lanes
+    assert w.timeline.lanes and w.nav_buttons[TIMELINE_TAB].isChecked()
+    w.close()
+
+
+def test_warnings_fold_and_device_menu(app):
+    w = MainWindow("ko")
+    w.set_log(open_log(SAMPLE_LOG), str(SAMPLE_LOG))
+    app.processEvents()
+    s = w.summary
+    assert s._warn_rows and not s._warn_rows[0].isVisibleTo(s)
+    s._toggle_warnings()
+    assert s._warn_rows[0].isVisibleTo(s)
+    s.select(1)
+    s.close_detail()
+    assert s.side.currentWidget() is s.devices_box and s.selected is None
+    # "decode as drive" from the device menu re-analyses the log
+    menu = s._device_menu(3, s)
+    act = menu.actions()[0]
+    act.setChecked(True)
+    app.processEvents()
+    assert any(n.node == 3 and n.is_drive for n in w.log.nodes)
     w.close()
 
 
@@ -102,7 +125,7 @@ def test_live_monitor_demo(app, tmp_path):
         loop = QEventLoop()
         QTimer.singleShot(100, loop.quit)
         loop.exec()
-    assert w.modes.currentIndex() == 0 and len(w.log) == live.decoder.frame_count
+    assert w.center_tabs.currentIndex() == 0 and len(w.log) == live.decoder.frame_count
     w.close()
 
 

@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QTableView,
     QTableWidget,
@@ -45,6 +46,7 @@ from PySide6.QtWidgets import (
 from .. import describe
 from .._core import AxisState, Severity, Trace
 from ..live import FrameSnapshot, LiveDecoder
+from . import theme
 from .i18n import Tr
 from .models import KIND_COLORS
 
@@ -271,11 +273,11 @@ class LivePage(QWidget):
     # ------------------------------------------------------------------ layout
     def _build(self):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setContentsMargins(16, 12, 16, 12)
 
         bar_frame = QFrame()
         bar_frame.setObjectName("bar")
-        bar_frame.setStyleSheet("#bar { border:1px solid #e2e8f0; border-radius:8px; background: palette(base); }")
+        bar_frame.setStyleSheet(f"#bar {{ border:1px solid {theme.LINE}; border-radius:{theme.RADIUS}px; background:{theme.SURFACE}; }}")
         bar = QHBoxLayout(bar_frame)
         self.lbl_iface = QLabel()
         bar.addWidget(self.lbl_iface)
@@ -303,15 +305,28 @@ class LivePage(QWidget):
         self.btn_connect.setMinimumHeight(34)
         self.btn_connect.clicked.connect(self.toggle)
         bar.addWidget(self.btn_connect)
-        bar.addStretch(1)
         self.status = QLabel()
-        self.status.setStyleSheet("color:#475569;")
-        bar.addWidget(self.status)
+        self.status.setStyleSheet(f"color:{theme.TEXT_2};")
+        self.status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # the status text grows while running; it must not push the window wider
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        bar.addWidget(self.status, 1)
         lay.addWidget(bar_frame)
+        # hint on the left, what to do with the recording on the right
+        hint_row = QHBoxLayout()
         self.hint = QLabel()
         self.hint.setWordWrap(True)
-        self.hint.setStyleSheet("color:#64748b;")
-        lay.addWidget(self.hint)
+        self.hint.setMinimumWidth(1)
+        self.hint.setStyleSheet(f"color:{theme.TEXT_2};")
+        hint_row.addWidget(self.hint, 1)
+        self.btn_save = QPushButton()
+        self.btn_save.clicked.connect(self.save_log)
+        hint_row.addWidget(self.btn_save)
+        self.btn_analyze = QPushButton()
+        self.btn_analyze.setObjectName("primary")
+        self.btn_analyze.clicked.connect(self._open_in_analysis)
+        hint_row.addWidget(self.btn_analyze)
+        lay.addLayout(hint_row)
 
         split = QSplitter(Qt.Horizontal)
         lay.addWidget(split, 1)
@@ -332,7 +347,7 @@ class LivePage(QWidget):
         self.finding_list.viewport().installEventFilter(self)
         self.finding_list.currentItemChanged.connect(self._finding_selected)
         ll.addWidget(self.finding_list, 1)
-        left.setMinimumWidth(280)
+        left.setMinimumWidth(240)
         split.addWidget(left)
 
         # center: frames + nodes
@@ -353,13 +368,6 @@ class LivePage(QWidget):
         self.btn_clear = QPushButton()
         self.btn_clear.clicked.connect(self.clear)
         opts.addWidget(self.btn_clear)
-        self.btn_save = QPushButton()
-        self.btn_save.clicked.connect(self.save_log)
-        opts.addWidget(self.btn_save)
-        self.btn_analyze = QPushButton()
-        self.btn_analyze.setStyleSheet("QPushButton { background:#2563eb; color:white; border-radius:6px; padding:4px 12px; }")
-        self.btn_analyze.clicked.connect(self._open_in_analysis)
-        opts.addWidget(self.btn_analyze)
         fl.addLayout(opts)
         self.model = LiveFrameModel(self.tr_)
         self.table = QTableView()
@@ -397,7 +405,7 @@ class LivePage(QWidget):
         rl.addWidget(self.detail_title)
         self.detail = QTextBrowser()
         rl.addWidget(self.detail, 1)
-        right.setMinimumWidth(360)
+        right.setMinimumWidth(300)
         split.addWidget(right)
         split.setSizes([300, 720, 400])
         split.setStretchFactor(1, 1)
@@ -412,8 +420,8 @@ class LivePage(QWidget):
         self.btn_eds.setText(tr("live_eds"))
         self.btn_connect.setText(tr("live_stop") if self.running else tr("live_start"))
         self.btn_connect.setStyleSheet(
-            "QPushButton { background:%s; color:white; border-radius:6px; padding:4px 18px; font-weight:bold; }"
-            % ("#dc2626" if self.running else "#16a34a"))
+            "QPushButton { background:%s; color:white; border:none; border-radius:%dpx; padding:5px 18px; font-weight:bold; }"
+            % (theme.RED if self.running else theme.ACCENT, theme.RADIUS))
         self.iface.setItemText(0, tr("live_demo"))
         self.iface.setItemText(1, tr("live_demo_amr"))
         self.lbl_findings.setText(tr("live_findings"))
@@ -421,6 +429,7 @@ class LivePage(QWidget):
         self.center.setTabText(1, tr("live_nodes"))
         self.autoscroll.setText(tr("live_autoscroll"))
         self.pause.setText(tr("live_pause"))
+        self.pause.setToolTip(tr("live_pause_tip"))
         self.raw.setText(tr("raw_cols"))
         self.btn_clear.setText(tr("live_clear"))
         self.btn_save.setText(tr("live_save"))

@@ -4,8 +4,33 @@ from __future__ import annotations
 
 _STRINGS: dict[str, tuple[str, str]] = {
     "app_title": ("CANopen Lens", "CANopen Lens"),
+    # summary page (0.5)
+    "st_open": ("해결 안 됨", "unresolved"),
+    "st_recovered": ("회복됨", "recovered"),
+    "st_warning": ("경고", "warnings"),
+    "st_ok_devices": ("정상 장치", "OK devices"),
+    "col_where": ("장치", "Device"),
+    "col_what": ("무슨 일", "What happened"),
+    "col_when": ("시각", "Time"),
+    "col_status": ("상태", "Status"),
+    "pill_open": ("미해결", "unresolved"),
+    "pill_recovered": ("회복", "recovered"),
+    "pill_warning": ("경고", "warning"),
+    "warnings_n": ("경고 {}건", "{} warning(s)"),
+    "and_more": (" 외 {}건", " and {} more"),
+    "expand": ("펼치기", "show"),
+    "collapse": ("접기", "hide"),
+    "ov_all_ok": ("확인할 문제가 없습니다. 모든 장치가 정상적으로 통신했습니다.", "Nothing to check. Every device communicated normally."),
+    "devices_title": ("장치 상태", "Devices"),
+    "node_n": ("노드 {}", "Node {}"),
+    "device_menu": ("이 장치 설정 (드라이브로 해석, EDS 연결)", "Device settings (decode as drive, EDS)"),
+    "devices_timeline": ("타임라인에서 시간 순서로 보기 →", "See it in time order on the timeline →"),
+    "what_happened": ("무슨 일이 있었나요", "What happened"),
+    "check_first": ("먼저 확인할 것", "Check first"),
+    "open_message": ("{}번 메시지 보기", "Open message {}"),
+    "evidence_n": ("근거 메시지 {}개", "{} related message(s)"),
     "mode_analysis": ("로그 분석", "Log analysis"),
-    "mode_live": ("실시간 모니터", "Live monitor"),
+    "mode_live": ("실시간", "Live"),
     "live_title": ("실시간 모니터", "Live monitor"),
     "live_iface": ("연결 방식", "Interface"),
     "live_channel": ("채널", "Channel"),
@@ -26,11 +51,12 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "live_frames": ("메시지", "Messages"),
     "live_nodes": ("노드 상태", "Nodes"),
     "live_autoscroll": ("최신 메시지 따라가기", "Follow newest"),
-    "live_pause": ("화면 멈춤 (분석은 계속)", "Freeze view (keeps analysing)"),
+    "live_pause": ("화면 멈춤", "Freeze view"),
+    "live_pause_tip": ("화면만 멈추고, 받기와 분석은 계속합니다", "Only the view stops; receiving and analysing go on"),
     "live_clear": ("지우기", "Clear"),
     "live_save": ("기록 저장 (.log)", "Save recording (.log)"),
     "live_analyze": ("지금까지 기록을 로그 분석으로 열기", "Open recording in log analysis"),
-    "live_select": ("메시지나 진단 항목을 누르면 여기에 설명이 나옵니다. 받은 메시지는 모두 자동으로 기록되어, 나중에 저장하거나 로그 분석 탭에서 자세히 볼 수 있습니다.",
+    "live_select": ("메시지나 진단 항목을 누르면 여기에 설명이 나옵니다. 받은 메시지는 모두 자동으로 기록되어, 나중에 저장하거나 요약 화면에서 자세히 분석할 수 있습니다.",
                     "Click a message or a finding to see it explained here. Everything received is recorded, so it can be saved or opened in log analysis later."),
     "live_running": ("수신 중", "Receiving"),
     "live_stopped": ("정지됨", "Stopped"),
@@ -44,7 +70,7 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "live_col_kind": ("종류", "Kind"),
     "live_col_last": ("마지막 수신", "Last seen"),
     "live_ago": ("{:.1f}초 전", "{:.1f} s ago"),
-    "tab_overview": ("요약", "Overview"),
+    "tab_overview": ("요약", "Summary"),
     "verdict_ok": ("문제 없음", "All good"),
     "verdict_warning": ("주의", "Warnings"),
     "verdict_error": ("확인 필요", "Needs attention"),
@@ -60,7 +86,7 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "steps": ("이렇게 확인해 보세요", "How to check"),
     "times": ("{}번 발생 ({:.2f}초 ~ {:.2f}초)", "{} times ({:.2f} s – {:.2f} s)"),
     "time_once": ("{:.2f}초", "at {:.2f} s"),
-    "show_frame": ("이 시점의 메시지 보기", "Show the messages"),
+    "show_frame": ("이 시점 메시지 보기", "Show messages at this moment"),
     "show_timeline": ("타임라인에서 보기", "Show on timeline"),
     "occurrences": ("발생한 곳", "Occurrences"),
     "more_occ": ("외 {}건", "and {} more"),
@@ -77,24 +103,22 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "help": ("사용 방법", "How to use"),
     "help_html": (
         "<h3>CANopen Lens 사용 방법</h3>"
-        "<p><b>1. 로그 저장하기</b><br>리눅스나 라즈베리파이에서 <code>candump -l can0</code>을 실행하고, 문제가 생기는 동작을 한 뒤 Ctrl+C로 멈춥니다. "
-        "<code>candump-날짜.log</code> 파일이 생깁니다.</p>"
-        "<p><b>2. 열기</b><br>파일을 창에 끌어다 놓거나 <b>로그 열기</b>를 누릅니다.</p>"
-        "<p><b>3. 요약부터 보기</b><br><b>요약</b> 화면에 전체 판정, 장치별 상태, 먼저 확인할 문제가 나옵니다. "
-        "각 문제에는 무슨 일이 있었는지, 왜 중요한지, 무엇을 확인하면 되는지가 적혀 있습니다.</p>"
-        "<p><b>4. 자세히 보기</b><br><b>이 시점의 메시지 보기</b>를 누르면 그 순간 주고받은 메시지가 한 줄씩 쉬운 말로 풀려 있습니다. "
-        "<b>상태 타임라인</b>에서는 각 장치와 모터 축의 상태가 시간에 따라 어떻게 바뀌었는지 색으로 볼 수 있습니다.</p>"
-        "<p><b>5. 더 정확하게</b><br>장치 제조사의 EDS 파일이 있으면 <b>노드</b> 탭에서 지정하세요. 값의 이름과 단위가 정확해집니다.</p>"
-        "<p>모르는 용어는 <b>용어 설명</b> 버튼을 누르면 볼 수 있습니다.</p>",
+        "<p><b>1. 로그 저장</b> — 리눅스·라즈베리파이에서 <code>candump -l can0</code>을 실행하고, 문제가 생기는 동작을 한 뒤 Ctrl+C로 멈춥니다.</p>"
+        "<p><b>2. 열기</b> — 파일을 창에 끌어다 놓거나 <b>로그 열기</b>를 누릅니다. 로그가 없으면 <b>예제</b>를 열어 보세요.</p>"
+        "<p><b>3. 요약</b> — 맨 위에 결론, 그 아래에 문제가 <b>해결 안 됨 → 회복 → 경고</b> 순서로 한 줄씩 나옵니다. "
+        "줄을 누르면 오른쪽에 무슨 일이 있었는지와 먼저 확인할 것이 열립니다.</p>"
+        "<p><b>4. 메시지 · 타임라인</b> — <b>이 시점 메시지 보기</b>는 그 순간의 메시지를 한 줄씩 풀어 보여 주고, "
+        "<b>타임라인</b>은 장치와 축의 상태 변화를 시간 순서로 보여 줍니다 (Ctrl+휠로 확대).</p>"
+        "<p><b>5. 더 정확하게</b> — 장치 상태 목록의 <b>⋯</b>에서 EDS 파일을 연결하면 값의 이름과 단위가 정확해집니다.</p>"
+        "<p>모르는 용어는 <b>용어 설명</b>에 있습니다.</p>",
         "<h3>How to use CANopen Lens</h3>"
-        "<p><b>1. Record a log</b><br>On Linux or a Raspberry Pi run <code>candump -l can0</code>, reproduce the problem, then stop with Ctrl+C. "
-        "A <code>candump-DATE.log</code> file is created.</p>"
-        "<p><b>2. Open it</b><br>Drop the file on the window or click <b>Open log</b>.</p>"
-        "<p><b>3. Start with the overview</b><br>The <b>Overview</b> shows the verdict, the status of each device and the problems to check first, "
-        "each with what happened, why it matters and what to check.</p>"
-        "<p><b>4. Dig deeper</b><br><b>Show the messages</b> jumps to the messages around a problem, each explained in plain words. "
-        "The <b>State timeline</b> shows how each device and motor axis changed state over time.</p>"
-        "<p><b>5. Be more precise</b><br>If you have the vendor's EDS file, assign it in the <b>Nodes</b> tab for exact names and units.</p>"
+        "<p><b>1. Record</b> — on Linux or a Raspberry Pi run <code>candump -l can0</code>, reproduce the problem, stop with Ctrl+C.</p>"
+        "<p><b>2. Open</b> — drop the file on the window or click <b>Open log</b>. No log yet? Open one of the <b>Examples</b>.</p>"
+        "<p><b>3. Summary</b> — the verdict on top, then the problems one per line: <b>unresolved → recovered → warnings</b>. "
+        "Click a line to see what happened and what to check first.</p>"
+        "<p><b>4. Messages · Timeline</b> — <b>Show messages at this moment</b> explains every message around that moment; "
+        "the <b>Timeline</b> shows how devices and axes changed state (Ctrl+wheel to zoom).</p>"
+        "<p><b>5. Be more precise</b> — attach the vendor's EDS from <b>⋯</b> in the device list for exact names and units.</p>"
         "<p>Unknown words are explained under <b>Glossary</b>.</p>"),
     "welcome_steps": (
         "① 장비에서 <code>candump -l can0</code>으로 로그를 저장하세요 &nbsp;→&nbsp; ② 파일을 여기에 놓으세요 &nbsp;→&nbsp; ③ 요약 화면에서 문제와 해결 방법을 확인하세요",
@@ -121,7 +145,7 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "frame_findings": ("이 메시지에서 발견된 문제", "Problems found in this message"),
 
     "open": ("로그 열기", "Open log"),
-    "open_sample": ("예제 로그 열어보기", "Try the sample log"),
+    "open_sample": ("예제", "Examples"),
     "example_mixed": ("여러 장치 예제 – 드라이브 3대 + I/O, 여러 가지 문제가 들어 있음",
                       "Mixed network – three drives and an I/O module with several problems"),
     "example_amr": ("2륜 AMR 예제 – STM32 2축 드라이브 + ros2_canopen 마스터, 부팅부터 비상정지까지",
@@ -136,16 +160,16 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "no_frames": ("candump 형식의 CAN 프레임을 찾지 못했습니다. 파일 형식을 확인하세요.",
                   "No candump frames found. Please check the file format."),
     "language": ("English", "한국어"),
-    "frames": ("프레임", "frames"),
+    "frames": ("메시지", "messages"),
     "duration": ("길이", "duration"),
     "errors": ("오류", "Errors"),
     "warnings": ("경고", "Warnings"),
-    "nodes": ("노드", "Nodes"),
+    "nodes": ("노드", "nodes"),
     "no_issues": ("발견된 문제가 없습니다 👍", "No problems found 👍"),
     "tab_issues": ("진단 결과", "Diagnosis"),
     "tab_nodes": ("노드", "Nodes"),
-    "tab_frames": ("전체 프레임", "All frames"),
-    "tab_timeline": ("상태 타임라인", "State timeline"),
+    "tab_frames": ("메시지", "Messages"),
+    "tab_timeline": ("타임라인", "Timeline"),
     "col_no": ("#", "#"),
     "col_time": ("시간(s)", "Time (s)"),
     "col_node": ("노드", "Node"),
