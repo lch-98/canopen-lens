@@ -9,18 +9,18 @@ pip install "canopen-lens[gui]"    # the desktop app (recommended)
 canopen-lens                       # opens the window
 ```
 
-> `pip install canopen-lens` on its own installs only the Python library and the `canopen-lens report` command line.
+> `pip install canopen-lens` on its own installs only the Python library and the command line (`canopen-lens your.log`).
 > 한국어: 창(GUI)으로 쓰려면 위처럼 `pip install "canopen-lens[gui]"`로 설치하세요. `[gui]` 없이 설치하면 라이브러리와 명령줄 기능만 들어갑니다.
 
 ![Overview screen](https://raw.githubusercontent.com/lch-98/canopen-lens/main/docs/overview_en.png)
 
 Made so that someone new to CANopen can find a root cause from a single log, without knowing CAN IDs or bytes:
 
-- **A verdict** – "Problems found – 3 kinds of error, 1 kind of warning"
-- **The status of every device** – "Node 5 (CiA 402 drive): had problems but recovered · Axis 2: faulted 1 time but recovered to Enabled"
-- **What to check first** – every problem explained as *What happened? / Why does it matter? / How to check*
+- **A one-line verdict** – "Needs attention · unresolved 3 · recovered 2 · warnings 2"
+- **A list of problems** – messages that belong to one event (fault, EMCY, failed resets …) become one row, e.g. "Node 2 · Stopped: over current → recovered on reset #2"
+- **Details on demand** – click a row for *What happened / Check first / Why it matters*
 
-The UI and all explanations are available in **English and Korean**.
+The app and the command line both speak **English and Korean**.
 
 ---
 
@@ -51,13 +51,80 @@ Run `canopen-lens` to open the window.
 ## Five-minute guide
 
 1. **Record a log** on the Linux PC or Raspberry Pi attached to the machine: `candump -l can0`, reproduce the problem, stop with `Ctrl+C`. (Saved console output such as `candump -t a can0 > log.txt` works too.)
-2. **Open it** – drop the file on the window. No log yet? Pick an example under **Try the sample log**: a mixed network with many problems, or a two-wheel AMR (ros2_canopen master + STM32 two-axis drive) from boot-time PDO configuration to an E-stop and recovery.
-3. **Read the overview** – the colour at the top is the verdict; below it are the status of each device and the problems to check first, most important first. Repeats of the same problem are shown once with a count.
-4. **Dig deeper** – **Show the messages** jumps to the moment of a problem, with every message explained in one line.
-5. **Live monitor** – the **Live monitor** tab connects to a USB-CAN adapter or SocketCAN and shows messages and problems as they happen (`socketcan`, `pcan`, `kvaser`, `ixxat`, `vector`, `slcan`, `gs_usb`). No hardware? Pick **Demo** to replay the sample log in real time. Everything received is recorded and can be saved as a candump file or opened in log analysis with one click.
-6. **State timeline** – how each device and motor axis changed state over time. Red is a fault, a gap means the device went silent. Click a bar to jump there.
+2. **Open it** – drop the file on the window or press **Open log**. No log yet? Pick one under **Examples**: a mixed network with many problems, or a two-wheel AMR (ros2_canopen master + STM32 two-axis drive) from boot-time PDO configuration to an E-stop and recovery.
+3. **Read the summary** – the card at the top is the verdict, the table below is the list of problems. **Unresolved** (red, still wrong at the end of the log) comes first, then **Recovered** (teal, went wrong but came back). **Warnings** (amber) are folded away until you open them. Every device's state is listed on the right.
+4. **Dig deeper** – click a row and the details open on the right: what happened in time order and three things to check first. **Show messages at this moment** jumps to the **Messages** page, with every message explained in one line. To attach an EDS or decode a device as a CiA 402 drive, use the **⋯** button next to it in the device list.
+5. **Live** – the **Live** page connects to a USB-CAN adapter or SocketCAN and shows messages and problems as they happen (`socketcan`, `pcan`, `kvaser`, `ixxat`, `vector`, `slcan`, `gs_usb`). No hardware? Pick **Demo** to replay the sample log in real time. Everything received is recorded and can be saved as a candump file or opened in log analysis with one click.
+6. **Timeline** – how each device and motor axis changed state over time. Red is a fault, a gap means the device went silent. Click a bar to jump there; Ctrl+wheel or dragging over a range zooms in on short events.
 
 Unknown words are explained under **Glossary**. **Save results** writes a readable report (.txt), JSON or an Excel-friendly CSV.
+
+![Problem details](https://raw.githubusercontent.com/lch-98/canopen-lens/main/docs/detail_en.png)
+
+---
+
+## Command line
+
+The same summary works over SSH, on a server or on a headless Raspberry Pi. Give it a log file:
+
+```bash
+canopen-lens examples              # copy the two example logs into this folder
+canopen-lens sample_cia402.log     # summary
+```
+
+```
+✖ Needs attention   unresolved 3  recovered 2  warnings 2  OK 1
+  sample_cia402.log · 6.0 s · 5,304 messages · 5 nodes
+
+Unresolved
+   1  Node 4           No answer — the device seems to be missing                0.27 s
+   2  Node 3           Went silent and never came back                           5.41 s
+   3  Node 2           A setting was not applied                                 0.26 s
+
+Recovered
+   4  Node 5 · axis 2  Stopped: motor blocked → recovered after a reset          1.99 s
+   5  Node 2           Stopped: continuous over current → recovered on reset #2  2.99 s
+
+Warnings  Node 3 silent 0.7 s · 1 CAN bus error(s)
+OK        Node 1
+
+Details       canopen-lens sample_cia402.log -d 1
+Save          canopen-lens sample_cia402.log -s result.csv
+```
+
+The last lines are the next command to type. Pass a number to `-d` to see that problem in detail:
+
+```
+$ canopen-lens sample_cia402.log -d 4
+4  Recovered  Node 5 · axis 2 · Stopped: motor blocked → recovered after a reset
+   Cause: Motor blocked (EMCY 0x7121)
+
+   What happened
+   1.990 s  Fault — motor torque switched off
+   1.990 s  Cause reported: Motor blocked · EMCY 0x7121
+   2.490 s  Fault cleared
+   2.690 s  Running again
+
+   Check first
+   1. Look up 0x7121 in the device manual's error table
+   2. Read the drive error code (0x683F) for the exact cause
+   3. Remove the cause, then fault reset → 0x06 → 0x07 → 0x0F
+
+   Why it matters  A faulted drive turns motor torque off and ignores motion commands until the fault is reset.
+   Messages        #1512 #1515 #1988 #1993 #2179
+```
+
+| Command | What it does |
+|---|---|
+| `canopen-lens robot.log` | summary |
+| `canopen-lens robot.log -d 1` | problem 1 in detail (`-d 1,4` and `-d all` work too) |
+| `canopen-lens robot.log -s result.txt` | save; the extension picks the format: `.txt` report · `.csv` messages (Excel) · `.json` findings |
+| `canopen-lens robot.log --eds 1=drive.eds` | attach an EDS to node 1 (repeat for more nodes) |
+| `canopen-lens robot.log --check` | exit status 1 if a problem is unresolved (test benches, CI) |
+| `canopen-lens live can0` | watch a bus live (`pip install "canopen-lens[live]"`; options: `canopen-lens live -h`) |
+| `canopen-lens` | open the window |
+
+The language follows the computer's setting; use `--lang en` / `--lang ko` or the `CANOPEN_LENS_LANG` environment variable to change it. `--no-color` (or `NO_COLOR=1`) turns colours off.
 
 ---
 
@@ -76,7 +143,9 @@ Unknown words are explained under **Glossary**. **Save results** writes a readab
 | Quick stop | The drive entered quick stop |
 | CAN bus errors | Corrupted traffic on the wires (termination, bit rate, cabling) |
 
-Verdicts: **✔ OK** – nothing went wrong · **▲ recovered** – something went wrong but was fine again at the end of the log · **✖ needs attention** – still wrong at the end (fault, silent device) or a setting was not applied.
+Every problem ends up in one of three states: **Unresolved** – still wrong at the end of the log (fault, silent device) or a setting was not applied · **Recovered** – something went wrong but was fine again at the end · **Warning** – nothing stopped, but it can become a problem if it keeps happening (late heartbeats, CAN bus errors). The verdict follows from them: **✖ Needs attention** if anything is unresolved, **▲ Problems occurred, all recovered** if every problem recovered, **▲ No real problems** if there are only warnings, **✔ No problems found** otherwise.
+
+A drive that stops leaves several messages behind: the fault, the EMCY at the same moment, failed resets, the successful reset, running again. These are grouped into **one incident** (fault and EMCY on the same node within 0.1 s; resets after it are numbered), so one event is not shown as five problems.
 
 ---
 
@@ -111,6 +180,11 @@ log = open_log("robot.log", eds={1: "drive.eds"})   # EDS optional
 
 print(log.report("en"))                  # the whole readable report
 
+ov = log.overview("en")                  # the same summary as the app and the command line
+print(ov.headline, ov.counts)            # "Needs attention", {"open": 3, "recovered": 2, …}
+for inc in ov.incidents:                 # grouped incidents, most important first
+    print(inc.number, inc.status, inc.where, inc.title)
+
 h = log.health("en")                     # verdict, per-node status, grouped findings
 for group in log.grouped_issues():
     ex = log.explain(group.first, "en")
@@ -139,15 +213,14 @@ with can.Bus(interface="socketcan", channel="can0") as bus:
 
 Or push frames yourself with `dec.feed(t, can_id, data)`. Only the newest frame is kept, so memory stays flat however long it runs.
 
-### Command line / CI
+### Test benches / CI
 
 ```bash
-canopen-lens report robot.log                          # readable report
-canopen-lens report robot.log --brief --fail-on-error  # exit code 1 on errors
-canopen-lens report robot.log --format json -o result.json
-canopen-lens report robot.log --format csv -o frames.csv
-canopen-lens live --channel can0 -v                    # pip install "canopen-lens[live]"
+canopen-lens robot.log --check -s result.json   # exit status 1 if a problem is unresolved, findings as JSON
 ```
+
+`summary`, `incidents` and `devices` in `result.json` hold the same verdict and problem list as the app.
+The pre-0.5 `canopen-lens report …` command still works.
 
 Type hints are included for IDE completion.
 

@@ -26,7 +26,7 @@ from ._core import (
     decode_controlword,
     decode_statusword,
 )
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 from .eds import EdsFile  # noqa: E402
 from .explain import Explanation, HealthSummary, IssueGroup, glossary  # noqa: E402
