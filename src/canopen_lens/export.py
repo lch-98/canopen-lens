@@ -81,8 +81,12 @@ def issue_dict(log: "CanopenLog", issue, lang: str = "ko") -> dict:
 
 def report_dict(log: "CanopenLog", lang: str = "ko") -> dict:
     h = log.health(lang)
+    ov = log.overview(lang)
     tr = log.trace
     return {
+        "summary": {"level": ov.level, "headline": ov.headline, "sentence": ov.sentence, "counts": ov.counts},
+        "incidents": [i.as_dict() for i in ov.incidents],
+        "devices": [{"node": d.node, "kind": d.kind, "status": d.status, "status_text": d.status_word} for d in ov.devices],
         "tool": f"canopen-lens {__version__}",
         "file": log.path,
         "frames": len(tr),

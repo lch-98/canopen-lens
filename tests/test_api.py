@@ -228,9 +228,10 @@ def test_missing_gui_explains_how_to_install(monkeypatch, capsys):
     from canopen_lens import gui
 
     monkeypatch.setitem(sys.modules, "canopen_lens.gui.app", None)       # import fails
+    monkeypatch.setenv("CANOPEN_LENS_LANG", "ko")
     real = importlib.util.find_spec
     monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "PySide6" else real(name, *a))
     with pytest.raises(SystemExit):
         gui.main([])
     err = capsys.readouterr().err
-    assert 'pip install "canopen-lens[gui]"' in err and "canopen-lens report" in err and "PySide6" in err
+    assert 'pip install "canopen-lens[gui]"' in err and "canopen-lens examples" in err and "PySide6가" in err

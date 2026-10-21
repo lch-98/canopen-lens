@@ -137,6 +137,18 @@ class CanopenLog(ObjectNames):
 
         return health_summary(self, lang)
 
+    def overview(self, lang: str = "ko") -> "Overview":
+        """The verdict and the problems as incidents (one story per problem), most urgent first."""
+        from .incidents import build_overview
+
+        return build_overview(self, lang)
+
+    def incidents(self, lang: str = "ko") -> "list[Incident]":
+        """Findings grouped into incidents: a fault, its cause and its recovery belong together."""
+        from .incidents import build_incidents
+
+        return build_incidents(self, lang)
+
     def grouped_issues(self) -> "list[IssueGroup]":
         """Findings with identical repeats collapsed (most severe first)."""
         from .explain import group_issues
