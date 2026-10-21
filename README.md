@@ -4,6 +4,14 @@
 
 [한국어 설명서 (Korean)](README.ko.md)
 
+```bash
+pip install "canopen-lens[gui]"    # the desktop app (recommended)
+canopen-lens                       # opens the window
+```
+
+> `pip install canopen-lens` on its own installs only the Python library and the `canopen-lens report` command line.
+> 한국어: 창(GUI)으로 쓰려면 위처럼 `pip install "canopen-lens[gui]"`로 설치하세요. `[gui]` 없이 설치하면 라이브러리와 명령줄 기능만 들어갑니다.
+
 ![Overview screen](https://raw.githubusercontent.com/lch-98/canopen-lens/main/docs/overview_en.png)
 
 Made so that someone new to CANopen can find a root cause from a single log, without knowing CAN IDs or bytes:

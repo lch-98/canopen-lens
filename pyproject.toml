@@ -4,8 +4,8 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "canopen-lens"
-version = "0.4.1"
-description = "Beginner-friendly CANopen log viewer: open a candump log and see what every frame means"
+version = "0.4.2"
+description = "Beginner-friendly CANopen log viewer. For the desktop app run: pip install \"canopen-lens[gui]\""
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

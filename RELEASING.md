@@ -42,8 +42,8 @@ PyPI에는 같은 버전 번호를 **한 번만** 올릴 수 있고, 지워도 �
 1. `pyproject.toml` 의 `version` 과 `src/canopen_lens/__init__.py` 의 `__version__` 을 같은 값으로 올립니다.
 2. 커밋 후 태그를 push 합니다.
    ```bash
-   git tag v0.4.1
-   git push origin v0.4.1
+   git tag v0.4.2
+   git push origin v0.4.2
    ```
 3. GitHub → **Actions → Release** 가 자동으로 다음을 합니다.
    - Linux x86_64 / aarch64, Windows x64용 **휠**을 빌드해 PyPI에 올림 → `pip install canopen-lens`가 컴파일 없이 설치됨

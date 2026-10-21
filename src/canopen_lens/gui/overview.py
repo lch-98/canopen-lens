@@ -62,7 +62,7 @@ def _card(border: str, background: str = "palette(base)") -> tuple[QFrame, QVBox
 
 class OverviewPage(QScrollArea):
     showRow = Signal(int)
-    showTimeline = Signal()
+    showTimeline = Signal(float)          # time of the finding (s)
 
     def __init__(self, tr: Tr, parent=None):
         super().__init__(parent)
@@ -195,7 +195,7 @@ class OverviewPage(QScrollArea):
         b1.clicked.connect(lambda _=False, r=row: self.showRow.emit(r))
         btns.addWidget(b1)
         b2 = QPushButton(tr("show_timeline"))
-        b2.clicked.connect(lambda _=False: self.showTimeline.emit())
+        b2.clicked.connect(lambda _=False, t=g.first.t: self.showTimeline.emit(float(t)))
         btns.addWidget(b2)
         btns.addStretch(1)
         cl.addLayout(btns)

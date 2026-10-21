@@ -104,3 +104,70 @@ def test_live_monitor_demo(app, tmp_path):
         loop.exec()
     assert w.modes.currentIndex() == 0 and len(w.log) == live.decoder.frame_count
     w.close()
+
+
+def test_timeline_zoom(app):
+    from canopen_lens.gui.app import EXAMPLE_DIR, TIMELINE_TAB
+    from canopen_lens.gui.timeline import format_duration, nice_step
+
+    assert nice_step(32.0, 10) == 5.0 and nice_step(0.45, 10) == 0.05 and nice_step(0.004, 8) == 0.0005
+    assert format_duration(0.04) == "40 ms" and format_duration(1.5) == "1.50 s" and format_duration(0.0004) == "0.40 ms"
+
+    p = str(EXAMPLE_DIR / "sample_amr_2wheel.log")
+    w = MainWindow("ko")
+    w.resize(1400, 900)
+    w.show()
+    w.set_log(open_log(p), p)
+    w.center_tabs.setCurrentIndex(TIMELINE_TAB)
+    app.processEvents()
+    tl = w.timeline
+    assert (tl.v0, tl.v1) == (0.0, tl.duration) and not w.timeline_scroll.isEnabled()
+
+    # zooming keeps the time under the pointer in place and never goes past the log
+    tl.zoom(0.1, anchor=3.1)
+    assert abs((3.1 - tl.v0) / tl.span - 3.1 / tl.duration) < 1e-6 and tl.is_zoomed()
+    assert w.timeline_scroll.isEnabled()
+    tl.set_view(1.0, 1.0001)
+    assert abs(tl.span - tl.MIN_SPAN) < 1e-12
+    tl.set_view(-5, -4)
+    assert tl.v0 == 0.0 and abs(tl.span - 1.0) < 1e-9
+    tl.set_view(tl.duration - 1, tl.duration + 5)
+    assert abs(tl.v1 - tl.duration) < 1e-9
+
+    # a 40 ms state is wide enough to hover once zoomed in, and can be found from a few px away
+    tl.set_view(2.95, 3.40)
+    lane = tl.lanes[0]
+    short = next(s for s in lane.segments if 0.03 < s.t1 - s.t0 < 0.05)
+    x0, x1 = tl._x(short.t0), tl._x(short.t1)
+    assert x1 - x0 > 20
+    assert tl._segment_at(lane, (x0 + x1) / 2) is short
+    tl.fit()
+    assert tl._segment_at(lane, tl._x(short.t0) + 1) is short     # drawn at least MIN_SEG_PX wide
+
+    # keyboard: next state change, Enter opens the message
+    tl.sel_lane, tl.cursor_t = 0, 2.9
+    tl.step_change(1)
+    first = tl.cursor_t
+    tl.step_change(1)
+    assert tl.cursor_t > first and "Enter" in w.timeline_cursor.text()
+    rows = []
+    tl.rowActivated.connect(rows.append)
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    app.sendEvent(tl, QKeyEvent(QEvent.KeyPress, Qt.Key_Return, Qt.NoModifier))
+    assert rows
+
+    # "show on timeline" from a finding zooms there and selects the faulted axis
+    fault = next(i for i in w.log.issues if i.axis == 1)
+    w.show_on_timeline(float(fault.t))
+    assert w.center_tabs.currentIndex() == TIMELINE_TAB
+    assert tl.v0 <= fault.t <= tl.v1 and tl.span <= 2.0 + 1e-9
+    assert "축 2" in tl.lanes[tl.sel_lane].title and "Fault" in w.timeline_cursor.text()
+
+    # scroll bar moves the zoomed view
+    w.timeline_scroll.setValue(w.timeline_scroll.value() + 1000)
+    assert tl.v0 > fault.t - 1.0
+    tl.fit()
+    assert not tl.is_zoomed()
+    w.close()

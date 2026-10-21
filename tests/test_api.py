@@ -221,3 +221,16 @@ def test_live_clock_alignment():
     for k in range(10):
         dec.feed_message(can.Message(timestamp=5.0 + k * 0.1, arbitration_id=0x701, data=b"\x05", is_extended_id=False))
     assert dec.tick(time.time()) == []           # must not look like a 1.7-billion-second silence
+
+
+def test_missing_gui_explains_how_to_install(monkeypatch, capsys):
+    import importlib.util
+    from canopen_lens import gui
+
+    monkeypatch.setitem(sys.modules, "canopen_lens.gui.app", None)       # import fails
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "PySide6" else real(name, *a))
+    with pytest.raises(SystemExit):
+        gui.main([])
+    err = capsys.readouterr().err
+    assert 'pip install "canopen-lens[gui]"' in err and "canopen-lens report" in err and "PySide6" in err

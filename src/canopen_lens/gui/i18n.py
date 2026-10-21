@@ -185,8 +185,16 @@ _STRINGS: dict[str, tuple[str, str]] = {
     "node_axis_n": ("축 {} 상태", "Axis {} state"),
     "node_axes": ("축 수", "Axes"),
     "timeline_empty": ("타임라인으로 보여줄 하트비트나 드라이브 상태가 없습니다.", "Nothing to draw: no heartbeats or drive states found."),
-    "timeline_hint": ("막대를 클릭하면 해당 시점의 프레임으로 이동합니다. 빨간 삼각형은 진단 항목입니다.",
-                      "Click a bar to jump to that moment. Red triangles mark findings."),
+    "timeline_hint": ("막대 클릭: 그 시점의 메시지 · 빨간 삼각형: 진단 항목 · Ctrl+휠 또는 드래그: 확대 · "
+                      "Shift+휠: 좌우 이동 · 더블클릭: 전체 보기 · ←/→: 이전/다음 상태 변화 · ↑/↓: 줄 선택",
+                      "Click a bar: open that message · red triangle: finding · Ctrl+wheel or drag: zoom · "
+                      "Shift+wheel: move · double-click: show all · ←/→: previous/next change · ↑/↓: pick a row"),
+    "timeline_fit": ("전체 보기", "Show all"),
+    "timeline_zoom_in": ("확대 (+)", "Zoom in (+)"),
+    "timeline_zoom_out": ("축소 (-)", "Zoom out (-)"),
+    "timeline_range": ("보이는 구간: {a} – {b} s ({span})", "Showing {a} – {b} s ({span})"),
+    "timeline_cursor": ("▶ {lane}: {state} · {t} s부터 {dur} 동안 · Enter: 이 메시지 보기",
+                        "▶ {lane}: {state} · from {t} s for {dur} · Enter: open this message"),
     "no_hb_period": ("하트비트 끊김", "no heartbeat"),
     "kind_help_title": ("이 종류는?", "About this type"),
     "settings": ("설정", "Settings"),

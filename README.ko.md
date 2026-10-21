@@ -4,6 +4,14 @@
 
 [English README](README.md)
 
+```bash
+pip install "canopen-lens[gui]"    # 창(GUI)으로 쓰는 프로그램 (권장)
+canopen-lens                       # 창 열기
+```
+
+> `[gui]` 없이 `pip install canopen-lens`만 하면 Python 라이브러리와 `canopen-lens report` 명령줄 기능만 설치됩니다.
+> 이미 그렇게 설치했다면 위 명령을 한 번 더 실행하면 됩니다.
+
 ![요약 화면](https://raw.githubusercontent.com/lch-98/canopen-lens/main/docs/overview_ko.png)
 
 CANopen을 처음 다루는 사람도 로그 하나로 원인을 찾을 수 있게 만들었습니다.

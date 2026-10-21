@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QScrollBar,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -381,7 +382,7 @@ class MainWindow(QMainWindow):
         self.center_tabs = QTabWidget()
         self.overview = OverviewPage(self.tr_)
         self.overview.showRow.connect(self.goto_row)
-        self.overview.showTimeline.connect(lambda: self.center_tabs.setCurrentIndex(TIMELINE_TAB))
+        self.overview.showTimeline.connect(self.show_on_timeline)
         self.center_tabs.addTab(self.overview, "")
         frames_page = QWidget()
         fl = QVBoxLayout(frames_page)
@@ -451,15 +452,42 @@ class MainWindow(QMainWindow):
 
         tl_page = QWidget()
         tll = QVBoxLayout(tl_page)
+        bar = QHBoxLayout()
+        self.btn_zoom_in = QPushButton("＋")
+        self.btn_zoom_out = QPushButton("－")
+        self.btn_zoom_fit = QPushButton()
+        for b in (self.btn_zoom_out, self.btn_zoom_in):
+            b.setFixedWidth(34)
+        bar.addWidget(self.btn_zoom_out)
+        bar.addWidget(self.btn_zoom_in)
+        bar.addWidget(self.btn_zoom_fit)
+        self.timeline_range = QLabel()
+        self.timeline_range.setStyleSheet("color:#334155; padding-left:8px;")
+        bar.addWidget(self.timeline_range)
+        bar.addStretch(1)
+        tll.addLayout(bar)
         self.timeline_hint = QLabel()
         self.timeline_hint.setStyleSheet("color:#64748b;")
+        self.timeline_hint.setWordWrap(True)
         tll.addWidget(self.timeline_hint)
         self.timeline = TimelineWidget(self.tr_)
         self.timeline.rowActivated.connect(self.goto_row)
+        self.btn_zoom_in.clicked.connect(lambda: self.timeline.zoom(0.5, self.timeline.cursor_t))
+        self.btn_zoom_out.clicked.connect(lambda: self.timeline.zoom(2.0, self.timeline.cursor_t))
+        self.btn_zoom_fit.clicked.connect(self.timeline.fit)
         tl_scroll = QScrollArea()
         tl_scroll.setWidgetResizable(True)
         tl_scroll.setWidget(self.timeline)
         tll.addWidget(tl_scroll, 1)
+        # horizontal position inside the log while zoomed in (in ms steps)
+        self.timeline_scroll = QScrollBar(Qt.Horizontal)
+        self.timeline_scroll.valueChanged.connect(self._timeline_scrolled)
+        tll.addWidget(self.timeline_scroll)
+        self.timeline_cursor = QLabel()
+        self.timeline_cursor.setStyleSheet("color:#0f172a;")
+        tll.addWidget(self.timeline_cursor)
+        self.timeline.viewChanged.connect(self._timeline_view_changed)
+        self.timeline.cursorChanged.connect(self.timeline_cursor.setText)
         self.center_tabs.addTab(tl_page, "")
         split.addWidget(self.center_tabs)
 
@@ -526,6 +554,10 @@ class MainWindow(QMainWindow):
         self.card_warn.caption.setText(tr("warnings_kinds"))
         self.card_nodes.caption.setText(tr("nodes"))
         self.timeline_hint.setText(tr("timeline_hint"))
+        self.btn_zoom_fit.setText(tr("timeline_fit"))
+        self.btn_zoom_in.setToolTip(tr("timeline_zoom_in"))
+        self.btn_zoom_out.setToolTip(tr("timeline_zoom_out"))
+        self._timeline_view_changed(self.timeline.v0, self.timeline.v1)
         self.detail_title.setText(tr("details"))
         self.model.headerDataChanged.emit(Qt.Horizontal, 0, self.model.columnCount() - 1)
         if self.log is None:
@@ -703,6 +735,33 @@ class MainWindow(QMainWindow):
         if not idx.isValid() or idx.row() >= self.model.rowCount():
             return None
         return self.model.frame_row(idx.row())
+
+    # -- timeline zoom ---------------------------------------------------------------
+    def show_on_timeline(self, t: float):
+        self.center_tabs.setCurrentIndex(TIMELINE_TAB)
+        self.timeline.focus_time(t)
+        self.timeline.setFocus()
+
+    def _timeline_view_changed(self, v0: float, v1: float):
+        tl = self.timeline
+        ms = lambda s: int(round(s * 1000))  # noqa: E731
+        sb = self.timeline_scroll
+        sb.blockSignals(True)
+        page = max(ms(v1 - v0), 1)
+        sb.setRange(0, max(ms(tl.duration) - page, 0))
+        sb.setPageStep(page)
+        sb.setSingleStep(max(page // 10, 1))
+        sb.setValue(ms(v0))
+        sb.blockSignals(False)
+        sb.setEnabled(tl.is_zoomed())
+        from .timeline import format_duration
+        self.timeline_range.setText(self.tr_("timeline_range").format(
+            a=f"{v0:.3f}", b=f"{v1:.3f}", span=format_duration(v1 - v0)))
+
+    def _timeline_scrolled(self, value: int):
+        tl = self.timeline
+        span = tl.span
+        tl.set_view(value / 1000.0, value / 1000.0 + span)
 
     def goto_row(self, frame_row: int):
         if self.log is None:
