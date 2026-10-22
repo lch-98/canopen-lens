@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "canopen-lens"
-version = "0.5.0"
+version = "0.5.1"
 description = "Beginner-friendly CANopen log viewer. For the desktop app run: pip install \"canopen-lens[gui]\""
 readme = "README.md"
 license = "MIT"

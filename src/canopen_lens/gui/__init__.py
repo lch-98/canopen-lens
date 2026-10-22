@@ -20,6 +20,12 @@ canopen-lens: the desktop app needs PySide6, which is not installed yet
 """,
 }
 
+# one line in the other language, for people whose computer language is not their own
+_OTHER = {
+    "ko": "English: the window needs PySide6 → pip install \"canopen-lens[gui]\" · more: canopen-lens --lang en\n",
+    "en": "한국어: 창 화면에는 PySide6가 필요합니다 → pip install \"canopen-lens[gui]\" · 자세히: canopen-lens --lang ko\n",
+}
+
 _LOAD_FAILED = {
     "ko": """\
 canopen-lens: PySide6는 설치되어 있지만 불러오지 못했습니다.
@@ -61,15 +67,25 @@ def _show(text: str) -> None:
             pass
 
 
+def _lang(argv) -> str:
+    from ..cli import default_lang
+
+    args = list(argv or [])
+    for k, a in enumerate(args):
+        if a in ("--lang=ko", "--ko") or (a == "--lang" and args[k + 1:k + 2] == ["ko"]):
+            return "ko"
+        if a in ("--lang=en", "--en") or (a == "--lang" and args[k + 1:k + 2] == ["en"]):
+            return "en"
+    return default_lang()
+
+
 def main(argv=None):
     try:
         from .app import main as _main
     except ImportError as exc:
-        from ..cli import default_lang
-
-        lang = default_lang()
+        lang = _lang(sys.argv if argv is None else argv)
         if importlib.util.find_spec("PySide6") is None:
-            _show(_NOT_INSTALLED[lang])
+            _show(_NOT_INSTALLED[lang] + "\n" + _OTHER[lang])
         else:
             _show(_LOAD_FAILED[lang].format(exc=exc))
         raise SystemExit(1)

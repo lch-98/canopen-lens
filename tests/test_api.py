@@ -235,3 +235,18 @@ def test_missing_gui_explains_how_to_install(monkeypatch, capsys):
         gui.main([])
     err = capsys.readouterr().err
     assert 'pip install "canopen-lens[gui]"' in err and "canopen-lens examples" in err and "PySide6가" in err
+
+
+def test_missing_gui_message_follows_lang_option(monkeypatch, capsys):
+    import importlib.util
+    from canopen_lens import gui
+
+    monkeypatch.setitem(sys.modules, "canopen_lens.gui.app", None)
+    monkeypatch.setenv("CANOPEN_LENS_LANG", "ko")                         # computer says Korean …
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "PySide6" else real(name, *a))
+    with pytest.raises(SystemExit):
+        gui.main(["canopen-lens", "--lang", "en"])                       # … but English was asked for
+    err = capsys.readouterr().err
+    assert err.startswith("canopen-lens: the desktop app needs PySide6")
+    assert "한국어:" in err                                                # one line in the other language

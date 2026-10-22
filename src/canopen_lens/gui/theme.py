@@ -47,6 +47,7 @@ STATUS = {
 LEVEL = {"error": STATUS["open"], "warning": STATUS["warning"], "ok": STATUS["ok"]}
 
 RADIUS = 4
+NAV_PAD_X = 18          # left/right padding of the page buttons (also used to size them)
 
 
 def mono_font(size_delta: float = 0.0) -> QFont:
@@ -76,7 +77,7 @@ QToolTip {{ color: {TEXT}; background: {SURFACE}; border: 1px solid {LINE}; padd
 
 #nav {{ background: {NAVY_2}; }}
 #nav QPushButton {{ color: {ON_NAVY_2}; background: transparent; border: none; border-top: 3px solid transparent;
-    padding: 9px 18px 10px 18px; font-size: 10.5pt; }}
+    padding: 9px {NAV_PAD_X}px 10px {NAV_PAD_X}px; font-size: 10.5pt; }}
 #nav QPushButton:hover {{ color: {ON_NAVY}; }}
 #nav QPushButton:checked {{ color: {ON_NAVY}; background: {NAVY}; border-top: 3px solid {ACCENT_BRIGHT}; font-weight: bold; }}
 #nav QPushButton:disabled {{ color: #64748B; }}

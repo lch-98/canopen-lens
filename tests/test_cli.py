@@ -89,3 +89,12 @@ def test_legacy_report_still_works(capsys):
 
 def test_wide_characters_line_up():
     assert width("노드 2") == 6 and width(pad("노드 2", 10)) == 10
+
+
+def test_lang_only_opens_window_in_that_language(monkeypatch):
+    import canopen_lens.gui as gui
+
+    seen = {}
+    monkeypatch.setattr(gui, "main", lambda argv: seen.setdefault("argv", argv) and 0)
+    main(["--lang", "en"])
+    assert seen["argv"] == ["canopen-lens", "--lang=en"]

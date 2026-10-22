@@ -126,6 +126,7 @@ HELP = {
   --no-color              색 끄기
 
 처음이라면   canopen-lens examples  →  canopen-lens sample_cia402.log
+English      canopen-lens -h --lang en
 """,
     "en": """CANopen Lens — explains a candump log in plain words
 
@@ -144,6 +145,7 @@ Common options
   --no-color              no colours
 
 New here?   canopen-lens examples  →  canopen-lens sample_cia402.log
+한국어      canopen-lens -h --lang ko
 """,
 }
 
@@ -553,10 +555,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         elif a.startswith("--lang=") and a[7:] in ("ko", "en"):
             lang = a[7:]
     try:
-        if not argv:
+        only_lang = argv in (["--lang", "ko"], ["--lang", "en"], ["--lang=ko"], ["--lang=en"])
+        if not argv or only_lang:              # `canopen-lens` or `canopen-lens --lang en`: the window
             from .gui import main as gui_main
 
-            return gui_main(["canopen-lens"])
+            return gui_main(["canopen-lens", f"--lang={lang}"])
         head = argv[0]
         if head in ("-h", "--help", "help"):
             _write(HELP[lang])

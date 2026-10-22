@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QSplitter,
     QTableView,
     QTableWidget,
@@ -47,6 +46,7 @@ from .. import describe
 from .._core import AxisState, Severity, Trace
 from ..live import FrameSnapshot, LiveDecoder
 from . import theme
+from .summary import ElideLabel
 from .i18n import Tr
 from .models import KIND_COLORS
 
@@ -305,11 +305,8 @@ class LivePage(QWidget):
         self.btn_connect.setMinimumHeight(34)
         self.btn_connect.clicked.connect(self.toggle)
         bar.addWidget(self.btn_connect)
-        self.status = QLabel()
-        self.status.setStyleSheet(f"color:{theme.TEXT_2};")
-        self.status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # the status text grows while running; it must not push the window wider
-        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        # the status text grows while running; it ends in … instead of pushing the window wider
+        self.status = ElideLabel(color=theme.TEXT_2, align=Qt.AlignRight)
         bar.addWidget(self.status, 1)
         lay.addWidget(bar_frame)
         # hint on the left, what to do with the recording on the right
@@ -354,8 +351,11 @@ class LivePage(QWidget):
         self.center = QTabWidget()
         frames = QWidget()
         fl = QVBoxLayout(frames)
-        fl.setContentsMargins(0, 4, 0, 0)
+        fl.setContentsMargins(0, 0, 0, 0)
+        fl.setSpacing(0)
         opts = QHBoxLayout()
+        opts.setContentsMargins(10, 8, 10, 8)     # keep the controls off the tab's edges
+        opts.setSpacing(14)
         self.autoscroll = QCheckBox()
         self.autoscroll.setChecked(True)
         opts.addWidget(self.autoscroll)

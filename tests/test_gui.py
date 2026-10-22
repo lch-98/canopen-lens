@@ -194,3 +194,16 @@ def test_timeline_zoom(app):
     tl.fit()
     assert not tl.is_zoomed()
     w.close()
+
+
+def test_nav_buttons_fit_bold_text(app):
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    w = MainWindow("en")
+    w.show()
+    app.processEvents()
+    for b in w.nav_buttons:
+        bold = QFont(b.font())
+        bold.setBold(True)
+        assert b.width() >= QFontMetrics(bold).horizontalAdvance(b.text()) + 36
+    w.close()

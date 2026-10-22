@@ -61,8 +61,10 @@ def _label(text: str = "", *, bold=False, size=1.0, color: Optional[str] = None,
 class ElideLabel(QLabel):
     """One line of text that ends in … when the column is too narrow (full text on hover)."""
 
-    def __init__(self, text: str = "", *, bold=False, size=1.0, color: Optional[str] = None, parent=None):
+    def __init__(self, text: str = "", *, bold=False, size=1.0, color: Optional[str] = None,
+                 align=Qt.AlignLeft, parent=None):
         super().__init__(text, parent)
+        self._align = align
         f = self.font()
         if bold:
             f.setBold(True)
@@ -72,6 +74,11 @@ class ElideLabel(QLabel):
         self.setStyleSheet(f"color:{color or theme.TEXT}; background: transparent;")
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.setToolTip(text)
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self.setToolTip(text)
+        self.updateGeometry()
 
     def minimumSizeHint(self):
         return QSize(20, self.fontMetrics().height())
@@ -83,7 +90,7 @@ class ElideLabel(QLabel):
         p = QPainter(self)
         p.setPen(self.palette().windowText().color())
         text = self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.width())
-        p.drawText(self.rect(), Qt.AlignVCenter | Qt.AlignLeft, text)
+        p.drawText(self.rect(), Qt.AlignVCenter | self._align, text)
         p.end()
 
 

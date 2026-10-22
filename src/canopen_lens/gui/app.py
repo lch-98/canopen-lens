@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QFont, QFontMetrics, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -16,24 +16,19 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QScrollBar,
-    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableView,
-    QTabWidget,
     QTextBrowser,
     QToolButton,
     QVBoxLayout,
@@ -49,7 +44,7 @@ from .i18n import Tr
 from .models import KIND_COLORS, FrameTableModel
 from .live_page import LivePage
 from . import theme
-from .summary import SummaryPage
+from .summary import ElideLabel, SummaryPage
 from .timeline import TimelineWidget
 
 # pages of the main area, in the order of the navigation bar
@@ -141,11 +136,9 @@ class MainWindow(QMainWindow):
         self.app_name.setFont(f)
         hl.addWidget(self.app_name)
         hl.addSpacing(10)
-        self.file_label = QLabel()
+        self.file_label = ElideLabel(color=theme.ON_NAVY_2)    # ends in … rather than widening the window
         self.file_label.setObjectName("fileInfo")
         self.file_label.setFont(theme.mono_font(-0.5))
-        self.file_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.file_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # never widens the window
         hl.addWidget(self.file_label, 1)
         self.btn_open_top = QPushButton()
         self.btn_open_top.setObjectName("primary")
@@ -431,6 +424,11 @@ class MainWindow(QMainWindow):
         self.btn_sample.setText(tr("open_sample"))
         for b, key in zip(self.nav_buttons, ("tab_overview", "tab_frames", "tab_timeline", "mode_live")):
             b.setText(tr(key))
+            # the selected page is drawn in bold; reserve that width so the text is never cut off
+            b.ensurePolished()
+            bold = QFont(b.font())
+            bold.setBold(True)
+            b.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(b.text()) + 2 * theme.NAV_PAD_X + 8)
         has_log = self.log is not None
         self.nav_buttons[FRAMES_TAB].setEnabled(has_log)
         self.nav_buttons[TIMELINE_TAB].setEnabled(has_log)
@@ -741,12 +739,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     lang = default_lang()
     files = []
-    for a in argv[1:]:
-        if a in ("--en", "--lang=en"):
+    rest = argv[1:]
+    for k, a in enumerate(rest):
+        if a in ("--en", "--lang=en") or (a == "--lang" and rest[k + 1:k + 2] == ["en"]):
             lang = "en"
-        elif a in ("--ko", "--lang=ko"):
+        elif a in ("--ko", "--lang=ko") or (a == "--lang" and rest[k + 1:k + 2] == ["ko"]):
             lang = "ko"
-        elif not a.startswith("-"):
+        elif not a.startswith("-") and not (k > 0 and rest[k - 1] == "--lang"):
             files.append(a)
     app = QApplication.instance() or QApplication(argv[:1])
     app.setApplicationName("CANopen Lens")
